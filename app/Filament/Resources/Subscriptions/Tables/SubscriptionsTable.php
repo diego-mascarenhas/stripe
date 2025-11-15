@@ -37,6 +37,16 @@ class SubscriptionsTable
                     ->wrap(),
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Estado')
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'active' => 'Activa',
+                        'past_due' => 'Vencida',
+                        'canceled' => 'Cancelada',
+                        'trialing' => 'En prueba',
+                        'incomplete' => 'Incompleta',
+                        'unpaid' => 'Impaga',
+                        'incomplete_expired' => 'Expirada',
+                        default => ucfirst($state ?? '—'),
+                    })
                     ->colors([
                         'success' => static fn ($state): bool => in_array($state, ['active', 'trialing']),
                         'warning' => static fn ($state): bool => in_array($state, ['past_due', 'incomplete']),
@@ -99,11 +109,15 @@ class SubscriptionsTable
                     ->label('Estado')
                     ->multiple()
                     ->default(['past_due', 'active'])
-                    ->options(fn (): array => Subscription::query()
-                        ->whereNotNull('status')
-                        ->distinct()
-                        ->pluck('status', 'status')
-                        ->toArray()),
+                    ->options([
+                        'active' => 'Activa',
+                        'past_due' => 'Vencida',
+                        'canceled' => 'Cancelada',
+                        'trialing' => 'En prueba',
+                        'incomplete' => 'Incompleta',
+                        'unpaid' => 'Impaga',
+                        'incomplete_expired' => 'Expirada',
+                    ]),
                 Tables\Filters\SelectFilter::make('plan_name')
                     ->label('Plan')
                     ->options(fn (): array => Subscription::query()

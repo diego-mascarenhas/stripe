@@ -22,6 +22,8 @@ class SubscriptionResource extends Resource
 
     protected static ?string $modelLabel = 'Suscripción';
 
+    protected static ?string $pluralModelLabel = 'Suscripciones';
+
     public static function table(Table $table): Table
     {
         return SubscriptionsTable::configure($table);
