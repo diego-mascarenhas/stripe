@@ -65,7 +65,7 @@ class SubscriptionsTable
                     ->color('gray')
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('amount_original')
-                    ->label('Importe original')
+                    ->label('Valor')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $originalAmount($record),
                         $record->price_currency,
@@ -77,21 +77,24 @@ class SubscriptionsTable
                         $record->amount_usd ?? $record->amount_total ?? $record->amount_subtotal,
                         'USD',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('amount_ars')
                     ->label('ARS')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $record->amount_ars,
                         'ARS',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('amount_eur')
                     ->label('EUR')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $record->amount_eur,
                         'EUR',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('customer_country')
                     ->label('País')
                     ->badge()
@@ -102,7 +105,8 @@ class SubscriptionsTable
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? 'USD'))
                     ->colors([
                         'primary',
-                    ]),
+                    ])
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
