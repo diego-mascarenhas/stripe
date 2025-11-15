@@ -1,0 +1,62 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Subscription extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'stripe_id',
+        'customer_id',
+        'customer_email',
+        'customer_name',
+        'customer_country',
+        'customer_tax_id_type',
+        'customer_tax_id',
+        'status',
+        'collection_method',
+        'plan_name',
+        'plan_interval',
+        'plan_interval_count',
+        'quantity',
+        'price_currency',
+        'unit_amount',
+        'amount_subtotal',
+        'amount_total',
+        'invoice_note',
+        'current_period_start',
+        'current_period_end',
+        'cancel_at_period_end',
+        'canceled_at',
+        'last_synced_at',
+        'amount_usd',
+        'amount_ars',
+        'amount_eur',
+        'raw_payload',
+    ];
+
+    protected $casts = [
+        'unit_amount' => 'decimal:2',
+        'amount_subtotal' => 'decimal:2',
+        'amount_total' => 'decimal:2',
+        'current_period_start' => 'datetime',
+        'current_period_end' => 'datetime',
+        'cancel_at_period_end' => 'boolean',
+        'canceled_at' => 'datetime',
+        'last_synced_at' => 'datetime',
+        'amount_usd' => 'decimal:2',
+        'amount_ars' => 'decimal:2',
+        'amount_eur' => 'decimal:2',
+        'raw_payload' => 'array',
+    ];
+
+    public function changes(): HasMany
+    {
+        return $this->hasMany(SubscriptionChange::class)->latest('detected_at');
+    }
+}
