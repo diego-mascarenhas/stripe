@@ -15,11 +15,18 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         $activeSubscriptions = Subscription::whereIn('status', ['active', 'trialing'])->count();
         $pastDueSubscriptions = Subscription::where('status', 'past_due')->count();
 
-        $totalEur = Subscription::whereNotNull('amount_eur')->sum('amount_eur');
-        $totalArs = Subscription::whereNotNull('amount_ars')->sum('amount_ars');
-        $totalUsd = Subscription::whereNotNull('amount_usd')->sum('amount_usd');
+        // Sum by billing currency
+        $billedInEur = Subscription::where('price_currency', 'eur')->sum('amount_total');
+        $countEur = Subscription::where('price_currency', 'eur')->count();
 
-        $billedInUsd = Subscription::where('price_currency', 'usd')->count();
+        $billedInArs = Subscription::where('price_currency', 'ars')->sum('amount_total');
+        $countArs = Subscription::where('price_currency', 'ars')->count();
+
+        $billedInUsd = Subscription::where('price_currency', 'usd')->sum('amount_total');
+        $countUsd = Subscription::where('price_currency', 'usd')->count();
+
+        // Total converted to EUR
+        $totalEur = Subscription::whereNotNull('amount_eur')->sum('amount_eur');
 
         // Get latest exchange rates
         $arsRate = ExchangeRate::where('base_currency', 'USD')
@@ -53,20 +60,25 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
                 ->descriptionIcon('heroicon-m-arrow-path')
                 ->color('gray'),
 
-            Stat::make('Facturación EUR', number_format($totalEur, 2, ',', '.').' €')
-                ->description('Total mensual en euros')
+            Stat::make('Servicios en EUR', number_format($billedInEur, 2, ',', '.').' €')
+                ->description($countEur.' suscripciones facturadas en euros')
                 ->descriptionIcon('heroicon-m-currency-euro')
                 ->color('primary'),
 
-            Stat::make('Facturación ARS', number_format($totalArs, 2, ',', '.').' $')
-                ->description('Total mensual en pesos argentinos')
+            Stat::make('Servicios en ARS', number_format($billedInArs, 2, ',', '.').' $')
+                ->description($countArs.' suscripciones facturadas en pesos')
                 ->descriptionIcon('heroicon-m-banknotes')
                 ->color('warning'),
 
-            Stat::make('Facturación USD', number_format($totalUsd, 2, ',', '.').' $')
-                ->description($billedInUsd.' facturadas en USD')
+            Stat::make('Servicios en USD', number_format($billedInUsd, 2, ',', '.').' $')
+                ->description($countUsd.' suscripciones facturadas en dólares')
                 ->descriptionIcon('heroicon-m-currency-dollar')
                 ->color('info'),
+
+            Stat::make('Total equivalente en EUR', number_format($totalEur, 2, ',', '.').' €')
+                ->description('Suma total de todas las suscripciones')
+                ->descriptionIcon('heroicon-m-calculator')
+                ->color('success'),
 
             Stat::make('Vencidas', number_format($pastDueSubscriptions, 0, ',', '.'))
                 ->description('Suscripciones con pagos pendientes')
