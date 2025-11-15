@@ -26,6 +26,9 @@ class ViewSubscription extends ViewRecord
     /** @var array<string, mixed>|null */
     public ?array $stripeCustomer = null;
 
+    /** @var array<int, array<string, mixed>> */
+    public array $stripeTaxIds = [];
+
     public function mount($record): void
     {
         parent::mount($record);
@@ -51,6 +54,14 @@ class ViewSubscription extends ViewRecord
 
             $this->stripeCustomer = $customer->toArray();
             $this->stripePaymentMethod = Arr::get($this->stripeCustomer, 'invoice_settings.default_payment_method');
+
+            $taxIds = $stripe->customers->allTaxIds($this->record->customer_id, [
+                'limit' => 5,
+            ]);
+
+            $this->stripeTaxIds = collect($taxIds->data)
+                ->map(fn ($taxId) => $taxId->toArray())
+                ->all();
 
             $invoices = $stripe->invoices->all([
                 'customer' => $this->record->customer_id,
@@ -103,6 +114,7 @@ class ViewSubscription extends ViewRecord
             'stripeInvoices' => $this->stripeInvoices,
             'stripePaymentMethod' => $this->stripePaymentMethod,
             'stripeCustomer' => $this->stripeCustomer,
+            'stripeTaxIds' => $this->stripeTaxIds,
             'subscriptionItems' => $this->getSubscriptionItems(),
         ];
     }
