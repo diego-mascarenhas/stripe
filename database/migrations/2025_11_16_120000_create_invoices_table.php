@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('customer_id')->nullable()->index();
             $table->string('customer_email')->nullable()->index();
             $table->string('customer_name')->nullable();
+            $table->string('customer_description')->nullable();
             $table->string('customer_tax_id')->nullable();
             $table->string('customer_address_country', 3)->nullable();
             $table->string('number')->nullable()->index();

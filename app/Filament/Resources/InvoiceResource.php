@@ -44,12 +44,13 @@ class InvoiceResource extends Resource
                     ->default(fn (Invoice $record): string => $record->stripe_id)
                     ->url(fn (Invoice $record): ?string => $record->hosted_invoice_url, shouldOpenInNewTab: true)
                     ->color('primary'),
-                Tables\Columns\TextColumn::make('customer_name')
+                Tables\Columns\TextColumn::make('customer_description')
                     ->label('Cliente')
                     ->description(fn (Invoice $record): ?string => $record->customer_email)
-                    ->searchable(['customer_name', 'customer_email'])
+                    ->searchable(['customer_description', 'customer_name', 'customer_email'])
                     ->sortable()
                     ->wrap()
+                    ->default(fn (Invoice $record): string => $record->customer_name ?? '—')
                     ->url(fn (Invoice $record): ?string => $record->customer_id
                         ? "https://dashboard.stripe.com/customers/{$record->customer_id}"
                         : null,

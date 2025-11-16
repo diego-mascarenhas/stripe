@@ -73,6 +73,16 @@ class SyncStripeInvoices
             }
         }
 
+        // Calculate tax from total_tax_amounts if tax field is not present
+        $tax = Arr::get($payload, 'tax');
+        if ($tax === null || $tax === 0) {
+            $totalTaxAmounts = Arr::get($payload, 'total_tax_amounts', []);
+            if (is_array($totalTaxAmounts) && ! empty($totalTaxAmounts)) {
+                $taxSum = collect($totalTaxAmounts)->sum('amount');
+                $tax = $taxSum > 0 ? $taxSum : null;
+            }
+        }
+
         return [
             'stripe_id' => Arr::get($payload, 'id'),
             'stripe_subscription_id' => is_string($subscription)
@@ -85,6 +95,8 @@ class SyncStripeInvoices
                 ?? Arr::get($payload, 'customer_email'),
             'customer_name' => Arr::get($customerArray, 'name')
                 ?? Arr::get($payload, 'customer_name'),
+            'customer_description' => Arr::get($customerArray, 'description')
+                ?? Arr::get($payload, 'customer_description'),
             'number' => Arr::get($payload, 'number'),
             'status' => Arr::get($payload, 'status'),
             'billing_reason' => Arr::get($payload, 'billing_reason'),
@@ -94,7 +106,7 @@ class SyncStripeInvoices
             'amount_paid' => $this->normalizeAmount(Arr::get($payload, 'amount_paid')),
             'amount_remaining' => $this->normalizeAmount(Arr::get($payload, 'amount_remaining')),
             'subtotal' => $this->normalizeAmount(Arr::get($payload, 'subtotal')),
-            'tax' => $this->normalizeAmount(Arr::get($payload, 'tax')),
+            'tax' => $this->normalizeAmount($tax),
             'total' => $this->normalizeAmount(Arr::get($payload, 'total')),
             'total_discount_amount' => $totalDiscountAmount,
             'applied_coupons' => ! empty($appliedCoupons) ? implode(', ', $appliedCoupons) : null,
