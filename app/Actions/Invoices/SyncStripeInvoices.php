@@ -111,7 +111,9 @@ class SyncStripeInvoices
 
     private function resolveCustomerTaxId(array $payload): ?string
     {
-        $taxIds = Arr::get($payload, 'customer_details.tax_ids', []);
+        // Try multiple locations where Stripe might store tax IDs
+        $taxIds = Arr::get($payload, 'customer_details.tax_ids', [])
+            ?: Arr::get($payload, 'customer_tax_ids', []);
 
         if (empty($taxIds) || ! is_array($taxIds)) {
             return null;

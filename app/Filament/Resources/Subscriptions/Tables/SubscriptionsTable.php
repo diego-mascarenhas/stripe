@@ -99,13 +99,6 @@ class SubscriptionsTable
                     ->badge()
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? '—'))
                     ->sortable(),
-                Tables\Columns\TextColumn::make('customer_tax_id')
-                    ->label('Datos Fiscales')
-                    ->state(fn (Subscription $record): string => $record->customer_tax_id
-                        ? trim($record->customer_tax_id . ' ' . ($record->customer_tax_id_type ? "({$record->customer_tax_id_type})" : ''))
-                        : '—')
-                    ->wrap()
-                    ->toggleable(),
                 Tables\Columns\BadgeColumn::make('price_currency')
                     ->label('Moneda facturación')
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? 'USD'))
