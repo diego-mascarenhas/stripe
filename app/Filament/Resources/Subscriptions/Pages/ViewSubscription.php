@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Subscriptions\Pages;
 
 use App\Filament\Resources\Subscriptions\SubscriptionResource;
 use App\Models\Subscription;
+use App\Support\Subscriptions\ManualPurchaseManager;
 use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -95,6 +96,41 @@ class ViewSubscription extends ViewRecord
                 ->icon('heroicon-o-arrow-path')
                 ->color('gray')
                 ->action(fn () => $this->loadStripeData()),
+            Action::make('edit-buy')
+                ->label('Editar compra')
+                ->icon('heroicon-o-pencil-square')
+                ->color('gray')
+                ->visible(fn (): bool => $this->record instanceof Subscription && $this->record->type === 'buy')
+                ->form(fn () => ManualPurchaseManager::schema())
+                ->fillForm(function (): array {
+                    /** @var Subscription $record */
+                    $record = $this->record;
+
+                    return [
+                        'vendor_name' => $record->customer_name,
+                        'vendor_email' => $record->customer_email,
+                        'plan_name' => $record->plan_name,
+                        'plan_interval' => $record->plan_interval ?? 'month',
+                        'plan_interval_count' => $record->plan_interval === 'indefinite'
+                            ? null
+                            : ($record->plan_interval_count ?? 1),
+                        'price_currency' => strtolower($record->price_currency ?? 'eur'),
+                        'amount_total' => $record->amount_total ?? 0,
+                        'current_period_end' => $record->current_period_end ?? now()->addMonth(),
+                        'notes' => $record->invoice_note,
+                    ];
+                })
+                ->action(function (array $data): void {
+                    ManualPurchaseManager::save($data, $this->record);
+
+                    Notification::make()
+                        ->title('Compra actualizada')
+                        ->body('La suscripción de compra se actualizó correctamente.')
+                        ->success()
+                        ->send();
+
+                    $this->record->refresh();
+                }),
             Action::make('open-stripe')
                 ->label('Ver en Stripe')
                 ->icon('heroicon-o-arrow-top-right-on-square')

@@ -14,35 +14,42 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         // Only count active and trialing subscriptions
         $activeStatuses = ['active', 'trialing'];
         
-        $totalSubscriptions = Subscription::count();
-        $activeSubscriptions = Subscription::whereIn('status', $activeStatuses)->count();
-        $pastDueSubscriptions = Subscription::where('status', 'past_due')->count();
-        $canceledSubscriptions = Subscription::where('status', 'canceled')->count();
+        $totalSubscriptions = Subscription::where('type', 'sell')->count();
+        $activeSubscriptions = Subscription::where('type', 'sell')->whereIn('status', $activeStatuses)->count();
+        $pastDueSubscriptions = Subscription::where('type', 'sell')->where('status', 'past_due')->count();
+        $canceledSubscriptions = Subscription::where('type', 'sell')->where('status', 'canceled')->count();
 
         // Sum by billing currency (only active/trialing)
-        $billedInEur = Subscription::where('price_currency', 'eur')
+        $billedInEur = Subscription::where('type', 'sell')
+            ->where('price_currency', 'eur')
             ->whereIn('status', $activeStatuses)
             ->sum('amount_total');
-        $countEur = Subscription::where('price_currency', 'eur')
+        $countEur = Subscription::where('type', 'sell')
+            ->where('price_currency', 'eur')
             ->whereIn('status', $activeStatuses)
             ->count();
 
-        $billedInArs = Subscription::where('price_currency', 'ars')
+        $billedInArs = Subscription::where('type', 'sell')
+            ->where('price_currency', 'ars')
             ->whereIn('status', $activeStatuses)
             ->sum('amount_total');
-        $countArs = Subscription::where('price_currency', 'ars')
+        $countArs = Subscription::where('type', 'sell')
+            ->where('price_currency', 'ars')
             ->whereIn('status', $activeStatuses)
             ->count();
 
-        $billedInUsd = Subscription::where('price_currency', 'usd')
+        $billedInUsd = Subscription::where('type', 'sell')
+            ->where('price_currency', 'usd')
             ->whereIn('status', $activeStatuses)
             ->sum('amount_total');
-        $countUsd = Subscription::where('price_currency', 'usd')
+        $countUsd = Subscription::where('type', 'sell')
+            ->where('price_currency', 'usd')
             ->whereIn('status', $activeStatuses)
             ->count();
 
         // Total converted to EUR (only active/trialing)
-        $totalEur = Subscription::whereNotNull('amount_eur')
+        $totalEur = Subscription::where('type', 'sell')
+            ->whereNotNull('amount_eur')
             ->whereIn('status', $activeStatuses)
             ->sum('amount_eur');
 
@@ -123,21 +130,27 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         $mrr = 0.0;
         $activeStatuses = ['active', 'trialing'];
 
-        Subscription::whereNotNull('amount_eur')
+        Subscription::where('type', 'sell')
+            ->whereNotNull('amount_eur')
             ->whereNotNull('plan_interval')
+            ->where('plan_interval', '!=', 'indefinite')
             ->whereIn('status', $activeStatuses)
             ->chunk(100, function ($subscriptions) use (&$mrr) {
                 foreach ($subscriptions as $subscription) {
                     $amountEur = (float) $subscription->amount_eur;
                     $interval = $subscription->plan_interval;
-                    $intervalCount = (int) ($subscription->plan_interval_count ?? 1);
+                    $intervalCount = max((int) ($subscription->plan_interval_count ?? 1), 1);
 
-                    // Convert to monthly equivalent
                     $monthlyAmount = match ($interval) {
                         'day' => $amountEur * 30 / $intervalCount,
-                        'week' => $amountEur * 4.33 / $intervalCount, // Average weeks per month
+                        'week' => $amountEur * 4.33 / $intervalCount,
                         'month' => $amountEur / $intervalCount,
+                        'quarter' => $amountEur / (3 * $intervalCount),
+                        'semester' => $amountEur / (6 * $intervalCount),
                         'year' => $amountEur / (12 * $intervalCount),
+                        'biennial' => $amountEur / (24 * $intervalCount),
+                        'quinquennial' => $amountEur / (60 * $intervalCount),
+                        'decennial' => $amountEur / (120 * $intervalCount),
                         default => 0.0,
                     };
 

@@ -12,6 +12,7 @@ class Subscription extends Model
 
     protected $fillable = [
         'stripe_id',
+        'type',
         'customer_id',
         'customer_email',
         'customer_name',
@@ -55,6 +56,10 @@ class Subscription extends Model
         'raw_payload' => 'array',
     ];
 
+    protected $attributes = [
+        'type' => 'sell',
+    ];
+
     public function changes(): HasMany
     {
         return $this->hasMany(SubscriptionChange::class)->latest('detected_at');
@@ -73,11 +78,20 @@ class Subscription extends Model
         }
 
         $count = $this->plan_interval_count ?? 1;
+        if ($this->plan_interval === 'indefinite') {
+            return 'Indefinido';
+        }
+
         $intervalMap = [
             'day' => ['singular' => 'día', 'plural' => 'días'],
             'week' => ['singular' => 'semana', 'plural' => 'semanas'],
             'month' => ['singular' => 'mes', 'plural' => 'meses'],
+            'quarter' => ['singular' => 'trimestre', 'plural' => 'trimestres'],
+            'semester' => ['singular' => 'semestre', 'plural' => 'semestres'],
             'year' => ['singular' => 'año', 'plural' => 'años'],
+            'biennial' => ['singular' => 'cada 2 años', 'plural' => 'cada 2 años'],
+            'quinquennial' => ['singular' => 'cada 5 años', 'plural' => 'cada 5 años'],
+            'decennial' => ['singular' => 'cada 10 años', 'plural' => 'cada 10 años'],
         ];
 
         $interval = $intervalMap[$this->plan_interval] ?? [

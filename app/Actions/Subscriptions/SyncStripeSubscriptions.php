@@ -116,6 +116,7 @@ class SyncStripeSubscriptions
 
         return [
             'stripe_id' => Arr::get($payload, 'id'),
+            'type' => 'sell',
             'customer_id' => is_string($customer)
                 ? $customer
                 : Arr::get($customerArray, 'id'),

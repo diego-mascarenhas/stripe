@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('subscriptions', function (Blueprint $table) {
             $table->id();
             $table->string('stripe_id')->unique();
+            $table->string('type', 10)->default('sell')->index();
             $table->string('customer_id')->nullable()->index();
             $table->string('customer_email')->nullable()->index();
             $table->string('customer_name')->nullable();

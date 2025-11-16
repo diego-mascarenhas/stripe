@@ -4,6 +4,9 @@ namespace App\Filament\Resources\Subscriptions\Tables;
 
 use App\Filament\Resources\Subscriptions\SubscriptionResource;
 use App\Models\Subscription;
+use App\Support\Subscriptions\ManualPurchaseManager;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Table;
 
@@ -39,6 +42,50 @@ class SubscriptionsTable
                     ->label('Plan')
                     ->searchable()
                     ->wrap()
+                    ->toggleable(),
+                Tables\Columns\BadgeColumn::make('type')
+                    ->label('Tipo')
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'buy' => 'Compra',
+                        default => 'Venta',
+                    })
+                    ->colors([
+                        'danger' => 'buy',
+                        'success' => 'sell',
+                    ])
+                    ->action(
+                        Action::make('edit-buy-from-badge')
+                            ->label('Editar compra')
+                            ->icon('heroicon-o-pencil-square')
+                            ->color('gray')
+                            ->visible(fn (Subscription $record): bool => $record->type === 'buy')
+                            ->form(fn () => ManualPurchaseManager::schema())
+                            ->fillForm(function (Subscription $record): array {
+                                return [
+                                    'vendor_name' => $record->customer_name,
+                                    'vendor_email' => $record->customer_email,
+                                    'plan_name' => $record->plan_name,
+                                    'plan_interval' => $record->plan_interval ?? 'month',
+                                    'plan_interval_count' => $record->plan_interval === 'indefinite'
+                                        ? null
+                                        : ($record->plan_interval_count ?? 1),
+                                    'price_currency' => strtolower($record->price_currency ?? 'eur'),
+                                    'amount_total' => $record->amount_total ?? 0,
+                                    'current_period_end' => $record->current_period_end ?? now()->addMonth(),
+                                    'notes' => $record->invoice_note,
+                                ];
+                            })
+                            ->action(function (array $data, Subscription $record): void {
+                                ManualPurchaseManager::save($data, $record);
+
+                                Notification::make()
+                                    ->title('Compra actualizada')
+                                    ->body('La suscripción de compra se actualizó correctamente.')
+                                    ->success()
+                                    ->send();
+                            })
+                    )
+                    ->sortable()
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('billing_frequency')
                     ->label('Frecuencia')
@@ -133,6 +180,12 @@ class SubscriptionsTable
                         ->orderBy('plan_name')
                         ->pluck('plan_name', 'plan_name')
                         ->toArray()),
+                Tables\Filters\SelectFilter::make('type')
+                    ->label('Tipo')
+                    ->options([
+                        'sell' => 'Venta',
+                        'buy' => 'Compra',
+                    ]),
             ])
             ->recordUrl(fn (Subscription $record): string => SubscriptionResource::getUrl('view', ['record' => $record]))
             ->actions([])
