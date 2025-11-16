@@ -30,6 +30,7 @@ class InvoiceResource extends Resource
     {
         return $table
             ->defaultSort('invoice_created_at', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->where('status', '!=', 'draft'))
             ->columns([
                 Tables\Columns\TextColumn::make('number')
                     ->label('Número de factura')
@@ -47,7 +48,40 @@ class InvoiceResource extends Resource
                     ->label('ID Fiscal')
                     ->wrap()
                     ->toggleable()
-                    ->formatStateUsing(fn (?string $state): string => $state ?? '—'),
+                    ->formatStateUsing(function (?string $state): ?string {
+                        if (! $state) {
+                            return null;
+                        }
+                        
+                        // Check for format "value (type)" with parentheses
+                        if (preg_match('/^(.+?)\s*\(([^)]+)\)$/', $state, $matches)) {
+                            return $matches[1]; // Just return the value
+                        }
+                        
+                        // Check for format "numbertype" without separator (e.g., "20-2741973-59ar_cuit")
+                        if (preg_match('/^([\d\-]+)([a-z_]+)$/i', $state, $matches)) {
+                            return $matches[1]; // Just return the number part
+                        }
+                        
+                        return $state;
+                    })
+                    ->description(function (?string $state): ?string {
+                        if (! $state) {
+                            return null;
+                        }
+                        
+                        // Check for format "value (type)" with parentheses
+                        if (preg_match('/^(.+?)\s*\(([^)]+)\)$/', $state, $matches)) {
+                            return $matches[2]; // Return the type
+                        }
+                        
+                        // Check for format "numbertype" without separator (e.g., "20-2741973-59ar_cuit")
+                        if (preg_match('/^([\d\-]+)([a-z_]+)$/i', $state, $matches)) {
+                            return $matches[2]; // Return the type part
+                        }
+                        
+                        return null;
+                    }),
                 Tables\Columns\TextColumn::make('subtotal')
                     ->label('Importe')
                     ->html()
