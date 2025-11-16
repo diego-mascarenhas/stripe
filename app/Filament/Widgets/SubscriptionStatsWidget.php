@@ -14,12 +14,39 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         // Only count active and trialing subscriptions
         $activeStatuses = ['active', 'trialing'];
         
+        // INGRESOS (type = 'sell')
         $totalSubscriptions = Subscription::where('type', 'sell')->count();
         $activeSubscriptions = Subscription::where('type', 'sell')->whereIn('status', $activeStatuses)->count();
         $pastDueSubscriptions = Subscription::where('type', 'sell')->where('status', 'past_due')->count();
         $canceledSubscriptions = Subscription::where('type', 'sell')->where('status', 'canceled')->count();
 
-        // Sum by billing currency (only active/trialing)
+        // Total converted to EUR (only active/trialing) - INGRESOS
+        $totalEurIncome = Subscription::where('type', 'sell')
+            ->whereNotNull('amount_eur')
+            ->whereIn('status', $activeStatuses)
+            ->sum('amount_eur');
+
+        // Monthly Recurring Revenue (MRR) - normalized to monthly equivalent in EUR - INGRESOS
+        $mrrIncome = $this->calculateMonthlyRecurringRevenue('sell');
+
+        // GASTOS (type = 'buy')
+        $totalExpenses = Subscription::where('type', 'buy')->count();
+        $activeExpenses = Subscription::where('type', 'buy')->whereIn('status', $activeStatuses)->count();
+
+        // Total converted to EUR (only active/trialing) - GASTOS
+        $totalEurExpenses = Subscription::where('type', 'buy')
+            ->whereNotNull('amount_eur')
+            ->whereIn('status', $activeStatuses)
+            ->sum('amount_eur');
+
+        // Monthly Recurring Expenses (MRE) - normalized to monthly equivalent in EUR - GASTOS
+        $mrrExpenses = $this->calculateMonthlyRecurringRevenue('buy');
+
+        // PROFIT
+        $profit = $totalEurIncome - $totalEurExpenses;
+        $mrrProfit = $mrrIncome - $mrrExpenses;
+
+        // Sum by billing currency (only active/trialing) - para los widgets originales
         $billedInEur = Subscription::where('type', 'sell')
             ->where('price_currency', 'eur')
             ->whereIn('status', $activeStatuses)
@@ -47,15 +74,6 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
             ->whereIn('status', $activeStatuses)
             ->count();
 
-        // Total converted to EUR (only active/trialing)
-        $totalEur = Subscription::where('type', 'sell')
-            ->whereNotNull('amount_eur')
-            ->whereIn('status', $activeStatuses)
-            ->sum('amount_eur');
-
-        // Monthly Recurring Revenue (MRR) - normalized to monthly equivalent in EUR
-        $mrr = $this->calculateMonthlyRecurringRevenue();
-
         // Get latest exchange rates
         $arsRate = ExchangeRate::where('base_currency', 'USD')
             ->where('target_currency', 'ARS')
@@ -78,21 +96,40 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         }
 
         return [
-            Stat::make('Total equivalente en EUR', number_format($totalEur, 2, ',', '.').' €')
-                ->description('Suma total de todas las suscripciones activas')
-                ->descriptionIcon('heroicon-m-calculator')
+            // PROFIT (NUEVOS)
+            Stat::make('Profit Total (EUR)', number_format($profit, 2, ',', '.').' €')
+                ->description('Ingresos - Gastos (suscripciones activas)')
+                ->descriptionIcon('heroicon-m-chart-bar')
+                ->color($profit >= 0 ? 'success' : 'danger'),
+
+            Stat::make('MRR Profit', number_format($mrrProfit, 2, ',', '.').' €')
+                ->description('MRR Ingresos - MRR Gastos')
+                ->descriptionIcon('heroicon-m-arrow-trending-up')
+                ->color($mrrProfit >= 0 ? 'success' : 'danger'),
+
+            // INGRESOS (NUEVOS)
+            Stat::make('Ingresos Totales (EUR)', number_format($totalEurIncome, 2, ',', '.').' €')
+                ->description(number_format($activeSubscriptions, 0, ',', '.').' suscripciones activas')
+                ->descriptionIcon('heroicon-m-arrow-up-circle')
                 ->color('success'),
 
-            Stat::make('MRR (Mensual Recurrente)', number_format($mrr, 2, ',', '.').' €')
-                ->description('Ingresos mensuales recurrentes normalizados')
-                ->descriptionIcon('heroicon-m-chart-bar')
+            Stat::make('MRR Ingresos', number_format($mrrIncome, 2, ',', '.').' €')
+                ->description('Ingresos mensuales recurrentes')
+                ->descriptionIcon('heroicon-m-banknotes')
                 ->color('primary'),
 
-            Stat::make('Tipo de cambio EUR/ARS', $rateDescription)
-                ->description($rateDate ? "Actualizado: {$rateDate}" : 'Ejecutar sincronización de tasas')
-                ->descriptionIcon('heroicon-m-arrow-path')
-                ->color('gray'),
+            // GASTOS (NUEVOS)
+            Stat::make('Gastos Totales (EUR)', number_format($totalEurExpenses, 2, ',', '.').' €')
+                ->description(number_format($activeExpenses, 0, ',', '.').' suscripciones activas')
+                ->descriptionIcon('heroicon-m-arrow-down-circle')
+                ->color('danger'),
 
+            Stat::make('MRR Gastos', number_format($mrrExpenses, 2, ',', '.').' €')
+                ->description('Gastos mensuales recurrentes')
+                ->descriptionIcon('heroicon-m-credit-card')
+                ->color('warning'),
+
+            // WIDGETS ORIGINALES
             Stat::make('Servicios en EUR', number_format($billedInEur, 2, ',', '.').' €')
                 ->description($countEur.' suscripciones activas facturadas en euros')
                 ->descriptionIcon('heroicon-m-currency-euro')
@@ -118,19 +155,19 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
                 ->descriptionIcon('heroicon-m-exclamation-triangle')
                 ->color('danger'),
 
-            Stat::make('Canceladas', number_format($canceledSubscriptions, 0, ',', '.'))
-                ->description('Suscripciones canceladas')
-                ->descriptionIcon('heroicon-m-x-circle')
+            Stat::make('Tipo de cambio EUR/ARS', $rateDescription)
+                ->description($rateDate ? "Actualizado: {$rateDate}" : 'Ejecutar sincronización de tasas')
+                ->descriptionIcon('heroicon-m-arrow-path')
                 ->color('gray'),
         ];
     }
 
-    private function calculateMonthlyRecurringRevenue(): float
+    private function calculateMonthlyRecurringRevenue(string $type = 'sell'): float
     {
         $mrr = 0.0;
         $activeStatuses = ['active', 'trialing'];
 
-        Subscription::where('type', 'sell')
+        Subscription::where('type', $type)
             ->whereNotNull('amount_eur')
             ->whereNotNull('plan_interval')
             ->where('plan_interval', '!=', 'indefinite')
