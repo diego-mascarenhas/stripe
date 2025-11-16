@@ -123,9 +123,8 @@ class SyncStripeInvoices
             $value = Arr::get($taxId, 'value');
 
             if (filled($value)) {
-                $type = Arr::get($taxId, 'type');
-
-                return $type ? "{$value} ({$type})" : $value;
+                // Return only the value without type
+                return $value;
             }
         }
 

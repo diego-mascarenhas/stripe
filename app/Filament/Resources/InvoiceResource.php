@@ -50,49 +50,17 @@ class InvoiceResource extends Resource
                     ->searchable(['customer_name', 'customer_email'])
                     ->sortable()
                     ->wrap()
-                    ->url(fn (Invoice $record): ?string => $record->customer_id 
+                    ->url(fn (Invoice $record): ?string => $record->customer_id
                         ? "https://dashboard.stripe.com/customers/{$record->customer_id}"
-                        : null, 
+                        : null,
                         shouldOpenInNewTab: true)
                     ->color('primary'),
                 Tables\Columns\TextColumn::make('customer_tax_id')
                     ->label('ID Fiscal')
                     ->wrap()
                     ->toggleable()
-                    ->formatStateUsing(function (?string $state): ?string {
-                        if (! $state) {
-                            return null;
-                        }
-                        
-                        // Check for format "value (type)" with parentheses
-                        if (preg_match('/^(.+?)\s*\(([^)]+)\)$/', $state, $matches)) {
-                            return $matches[1]; // Just return the value
-                        }
-                        
-                        // Check for format "numbertype" without separator (e.g., "20-2741973-59ar_cuit")
-                        if (preg_match('/^([\d\-]+)([a-z_]+)$/i', $state, $matches)) {
-                            return $matches[1]; // Just return the number part
-                        }
-                        
-                        return $state;
-                    })
-                    ->description(function (?string $state): ?string {
-                        if (! $state) {
-                            return null;
-                        }
-                        
-                        // Check for format "value (type)" with parentheses
-                        if (preg_match('/^(.+?)\s*\(([^)]+)\)$/', $state, $matches)) {
-                            return $matches[2]; // Return the type
-                        }
-                        
-                        // Check for format "numbertype" without separator (e.g., "20-2741973-59ar_cuit")
-                        if (preg_match('/^([\d\-]+)([a-z_]+)$/i', $state, $matches)) {
-                            return $matches[2]; // Return the type part
-                        }
-                        
-                        return null;
-                    }),
+                    ->formatStateUsing(fn (Invoice $record): string => $record->customer_name ?? 'Cliente')
+                    ->description(fn (Invoice $record): ?string => $record->customer_tax_id),
                 Tables\Columns\TextColumn::make('subtotal')
                     ->label('Importe')
                     ->html()
