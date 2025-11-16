@@ -60,7 +60,6 @@ class SubscriptionsTable
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('billing_frequency')
                     ->label('Frecuencia')
-                    ->state(fn (Subscription $record): ?string => self::formatFrequency($record))
                     ->badge()
                     ->color('gray')
                     ->toggleable(),
@@ -100,13 +99,28 @@ class SubscriptionsTable
                     ->badge()
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? '—'))
                     ->sortable(),
+                Tables\Columns\TextColumn::make('customer_tax_id')
+                    ->label('Datos Fiscales')
+                    ->state(fn (Subscription $record): string => $record->customer_tax_id
+                        ? trim($record->customer_tax_id . ' ' . ($record->customer_tax_id_type ? "({$record->customer_tax_id_type})" : ''))
+                        : '—')
+                    ->wrap()
+                    ->toggleable(),
                 Tables\Columns\BadgeColumn::make('price_currency')
                     ->label('Moneda facturación')
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? 'USD'))
                     ->colors([
                         'primary',
                     ])
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('current_period_end')
+                    ->label('Próximo ciclo')
+                    ->state(fn (Subscription $record): string => $record->current_period_end
+                        ? $record->current_period_end->format('d/m/Y') . ' (' . $record->current_period_end->diffForHumans() . ')'
+                        : '—')
+                    ->wrap()
+                    ->sortable()
+                    ->toggleable(),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -136,29 +150,5 @@ class SubscriptionsTable
             ->bulkActions([])
             ->emptyStateHeading('No hay suscripciones registradas')
             ->poll('60s');
-    }
-
-    private static function formatFrequency(Subscription $subscription): ?string
-    {
-        if (! $subscription->plan_interval) {
-            return null;
-        }
-
-        $count = $subscription->plan_interval_count ?? 1;
-        $intervalMap = [
-            'day' => ['singular' => 'día', 'plural' => 'días'],
-            'week' => ['singular' => 'semana', 'plural' => 'semanas'],
-            'month' => ['singular' => 'mes', 'plural' => 'meses'],
-            'year' => ['singular' => 'año', 'plural' => 'años'],
-        ];
-
-        $interval = $intervalMap[$subscription->plan_interval] ?? [
-            'singular' => $subscription->plan_interval,
-            'plural' => "{$subscription->plan_interval}s",
-        ];
-
-        $label = $count > 1 ? $interval['plural'] : $interval['singular'];
-
-        return "{$count} {$label}";
     }
 }

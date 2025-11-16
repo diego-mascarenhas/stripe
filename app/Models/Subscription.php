@@ -59,4 +59,34 @@ class Subscription extends Model
     {
         return $this->hasMany(SubscriptionChange::class)->latest('detected_at');
     }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'stripe_subscription_id', 'stripe_id')
+            ->orderByDesc('invoice_created_at');
+    }
+
+    public function getBillingFrequencyAttribute(): ?string
+    {
+        if (! $this->plan_interval) {
+            return null;
+        }
+
+        $count = $this->plan_interval_count ?? 1;
+        $intervalMap = [
+            'day' => ['singular' => 'día', 'plural' => 'días'],
+            'week' => ['singular' => 'semana', 'plural' => 'semanas'],
+            'month' => ['singular' => 'mes', 'plural' => 'meses'],
+            'year' => ['singular' => 'año', 'plural' => 'años'],
+        ];
+
+        $interval = $intervalMap[$this->plan_interval] ?? [
+            'singular' => $this->plan_interval,
+            'plural' => "{$this->plan_interval}s",
+        ];
+
+        $label = $count > 1 ? $interval['plural'] : $interval['singular'];
+
+        return "{$count} {$label}";
+    }
 }

@@ -2,20 +2,21 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Invoices\SyncStripeInvoices;
+use App\Models\Invoice;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Illuminate\Support\Str;
-use Stripe\StripeClient;
 use UnitEnum;
 
 class Invoices extends Page
 {
     protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-document-text';
 
-    protected static ?string $navigationLabel = 'Invoices';
+    protected static ?string $navigationLabel = 'Facturas';
 
-    protected static ?string $title = 'Invoices';
+    protected static ?string $title = 'Facturas';
 
     protected static ?string $slug = 'invoices';
 
@@ -34,11 +35,30 @@ class Invoices extends Page
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('refresh')
-                ->label('Actualizar')
+            Action::make('sync')
+                ->label('Sincronizar con Stripe')
                 ->icon('heroicon-o-arrow-path')
-                ->color('gray')
-                ->action(fn () => $this->loadInvoices()),
+                ->color('primary')
+                ->requiresConfirmation()
+                ->action(function () {
+                    try {
+                        $count = app(SyncStripeInvoices::class)->handle();
+
+                        Notification::make()
+                            ->title('Sincronización completada')
+                            ->body("{$count} facturas sincronizadas desde Stripe.")
+                            ->success()
+                            ->send();
+
+                        $this->loadInvoices();
+                    } catch (\Throwable $exception) {
+                        Notification::make()
+                            ->title('Error al sincronizar')
+                            ->body($exception->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
             Action::make('download')
                 ->label('Descargar CSV')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -48,62 +68,36 @@ class Invoices extends Page
 
     protected function loadInvoices(): void
     {
-        try {
-            /** @var StripeClient $stripe */
-            $stripe = app(StripeClient::class);
-
-            $params = [
-                'limit' => 100,
-                'expand' => [
-                    'data.customer',
-                    'data.subscription',
-                ],
-            ];
-
-            if ($customerId = request()->query('customer')) {
-                $params['customer'] = $customerId;
-            }
-
-            if ($status = request()->query('status')) {
-                $params['status'] = $status;
-            }
-
-            $response = $stripe->invoices->all($params);
-
-            $this->invoices = collect($response->data)
-                ->map(function ($invoice) {
-                    $discountTotal = collect($invoice->total_discount_amounts ?? [])
-                        ->sum(fn ($amount) => $amount->amount ?? 0);
-
-                    return [
-                        'id' => $invoice->id,
-                        'amount_due' => $this->formatMoney($invoice->amount_due),
-                        'billing' => $invoice->collection_method,
-                        'closed' => $invoice->auto_advance ? 'true' : 'false',
-                        'currency' => strtoupper($invoice->currency ?? 'USD'),
-                        'customer' => $invoice->customer ?? $invoice->customer_email ?? '—',
-                        'date' => optional($invoice->created ? now()->setTimestamp($invoice->created) : null)?->format('Y-m-d H:i') ?? '',
-                        'due_date' => optional($invoice->due_date ? now()->setTimestamp($invoice->due_date) : null)?->format('Y-m-d H:i') ?? '',
-                        'number' => $invoice->number,
-                        'paid' => $invoice->paid ? 'true' : 'false',
-                        'subscription' => $invoice->subscription,
-                        'subtotal' => $this->formatMoney($invoice->subtotal),
-                        'total_discount' => $this->formatMoney($discountTotal),
-                        'coupons' => collect($invoice->discounts ?? [])->map(fn ($discount) => $discount->coupon?->id)->filter()->implode(','),
-                        'tax' => $this->formatMoney($invoice->tax),
-                        'tax_percent' => $invoice->tax_percent,
-                        'total' => $this->formatMoney($invoice->total),
-                        'amount_paid' => $this->formatMoney($invoice->amount_paid),
-                        'status' => $invoice->status,
-                        'hosted_invoice_url' => $invoice->hosted_invoice_url,
-                        'invoice_pdf' => $invoice->invoice_pdf,
-                    ];
-                })
-                ->all();
-        } catch (\Throwable $exception) {
-            report($exception);
-            $this->invoices = [];
-        }
+        $this->invoices = Invoice::query()
+            ->orderByDesc('invoice_created_at')
+            ->limit(200)
+            ->get()
+            ->map(function (Invoice $invoice) {
+                return [
+                    'id' => $invoice->stripe_id,
+                    'amount_due' => number_format($invoice->amount_due ?? 0, 2, ',', '.'),
+                    'billing' => $invoice->billing_reason,
+                    'closed' => $invoice->closed ? 'true' : 'false',
+                    'currency' => $invoice->currency,
+                    'customer' => $invoice->customer_name ?? $invoice->customer_email ?? '—',
+                    'date' => $invoice->invoice_created_at?->format('Y-m-d H:i:s') ?? '',
+                    'due_date' => $invoice->invoice_due_date?->format('Y-m-d H:i:s') ?? '',
+                    'number' => $invoice->number,
+                    'paid' => $invoice->paid ? 'true' : 'false',
+                    'subscription' => $invoice->stripe_subscription_id ?? 'N/A',
+                    'subtotal' => number_format($invoice->subtotal ?? 0, 2, ',', '.'),
+                    'total_discount' => number_format($invoice->total_discount_amount ?? 0, 2, ',', '.'),
+                    'coupons' => $invoice->applied_coupons ?? '',
+                    'tax' => number_format($invoice->tax ?? 0, 2, ',', '.'),
+                    'tax_percent' => $invoice->raw_payload['tax_percent'] ?? 0,
+                    'total' => number_format($invoice->total ?? 0, 2, ',', '.'),
+                    'amount_paid' => number_format($invoice->amount_paid ?? 0, 2, ',', '.'),
+                    'status' => $invoice->status,
+                    'invoice_pdf' => $invoice->invoice_pdf,
+                    'hosted_invoice_url' => $invoice->hosted_invoice_url,
+                ];
+            })
+            ->all();
     }
 
     protected function downloadCsv()
@@ -117,7 +111,7 @@ class Invoices extends Page
             fputcsv($handle, [
                 'id',
                 'Amount Due',
-                'Billing',
+                'Billing Reason',
                 'Closed',
                 'Currency',
                 'Customer',
@@ -125,7 +119,7 @@ class Invoices extends Page
                 'Due Date (UTC)',
                 'Number',
                 'Paid',
-                'Subscription',
+                'Subscription ID',
                 'Subtotal',
                 'Total Discount Amount',
                 'Applied Coupons',

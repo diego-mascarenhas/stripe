@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('currency:sync')->dailyAt('06:00');
         $schedule->command('subscriptions:sync')->dailyAt('06:15');
+        $schedule->command('invoices:sync')->dailyAt('06:30');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

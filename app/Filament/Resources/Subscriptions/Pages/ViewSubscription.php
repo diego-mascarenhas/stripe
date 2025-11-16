@@ -63,20 +63,19 @@ class ViewSubscription extends ViewRecord
                 ->map(fn ($taxId) => $taxId->toArray())
                 ->all();
 
-            $invoices = $stripe->invoices->all([
-                'subscription' => $this->record->stripe_id,
-                'limit' => 50,
-            ]);
-
-            $this->stripeInvoices = collect($invoices->data)
+            // Load invoices from local database instead of Stripe API
+            $this->stripeInvoices = $this->record
+                ->invoices()
+                ->limit(50)
+                ->get()
                 ->map(function ($invoice) {
                     return [
-                        'id' => $invoice->id,
-                        'number' => $invoice->number ?? $invoice->id,
-                        'amount' => ($invoice->total ?? 0) / 100,
-                        'currency' => strtoupper($invoice->currency ?? 'usd'),
+                        'id' => $invoice->stripe_id,
+                        'number' => $invoice->number ?? $invoice->stripe_id,
+                        'amount' => $invoice->total ?? 0,
+                        'currency' => strtoupper($invoice->currency ?? 'USD'),
                         'status' => $invoice->status,
-                        'created_at' => Carbon::createFromTimestamp($invoice->created ?? now()->timestamp),
+                        'created_at' => $invoice->invoice_created_at ?? $invoice->created_at,
                         'hosted_invoice_url' => $invoice->hosted_invoice_url,
                         'invoice_pdf' => $invoice->invoice_pdf,
                     ];
