@@ -2,58 +2,60 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\InvoiceResource\Pages;
-use App\Models\Invoice;
+use App\Filament\Resources\CreditNoteResource\Pages;
+use App\Models\CreditNote;
 use App\Services\Currency\CurrencyConversionService;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables;
 use Filament\Tables\Table;
 use UnitEnum;
 
-class InvoiceResource extends Resource
+class CreditNoteResource extends Resource
 {
-    protected static ?string $model = Invoice::class;
+    protected static ?string $model = CreditNote::class;
 
-    protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-document-text';
+    protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-receipt-refund';
 
-    protected static ?string $navigationLabel = 'Facturas';
+    protected static ?string $navigationLabel = 'Notas de Crédito';
 
-    protected static ?string $modelLabel = 'Factura';
+    protected static ?string $modelLabel = 'Nota de Crédito';
 
-    protected static ?string $pluralModelLabel = 'Facturas';
+    protected static ?string $pluralModelLabel = 'Notas de Crédito';
 
     protected static UnitEnum|string|null $navigationGroup = 'Facturación';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     public static function table(Table $table): Table
     {
         return $table
-            ->defaultSort('invoice_created_at', 'desc')
+            ->defaultSort('credit_note_created_at', 'desc')
             ->modifyQueryUsing(fn ($query) => $query
-                ->where('status', '!=', 'draft')
-                ->orderByDesc('invoice_created_at')
+                ->where('voided', false)
+                ->orderByDesc('credit_note_created_at')
                 ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
             )
             ->columns([
                 Tables\Columns\TextColumn::make('number')
-                    ->label('Número de factura')
-                    ->description(fn (Invoice $record): ?string => $record->invoice_created_at?->format('d/m/Y'))
+                    ->label('Número')
+                    ->description(fn (CreditNote $record): ?string => $record->credit_note_created_at?->format('d/m/Y'))
                     ->searchable()
                     ->sortable(false)
-                    ->default(fn (Invoice $record): string => $record->stripe_id)
-                    ->url(fn (Invoice $record): ?string => $record->hosted_invoice_url, shouldOpenInNewTab: true)
+                    ->default(fn (CreditNote $record): string => $record->stripe_id)
+                    ->url(fn (CreditNote $record): ?string => 
+                        $record->hosted_credit_note_url 
+                        ?? ($record->stripe_id ? "https://dashboard.stripe.com/credit_notes/{$record->stripe_id}" : null), 
+                        shouldOpenInNewTab: true)
                     ->color('primary'),
                 Tables\Columns\TextColumn::make('customer_description')
                     ->label('Cliente')
-                    ->description(fn (Invoice $record): ?string => $record->customer_email)
+                    ->description(fn (CreditNote $record): ?string => $record->customer_email)
                     ->searchable(['customer_description', 'customer_name', 'customer_email'])
                     ->sortable()
                     ->wrap()
-                    ->default(fn (Invoice $record): string => $record->customer_name ?? '—')
-                    ->url(fn (Invoice $record): ?string => $record->customer_id
+                    ->default(fn (CreditNote $record): string => $record->customer_name ?? '—')
+                    ->url(fn (CreditNote $record): ?string => $record->customer_id
                         ? "https://dashboard.stripe.com/customers/{$record->customer_id}"
                         : null,
                         shouldOpenInNewTab: true)
@@ -62,22 +64,22 @@ class InvoiceResource extends Resource
                     ->label('ID Fiscal')
                     ->wrap()
                     ->toggleable()
-                    ->formatStateUsing(fn (Invoice $record): string => $record->customer_name ?? 'Cliente')
-                    ->description(fn (Invoice $record): ?string => $record->customer_tax_id),
+                    ->formatStateUsing(fn (CreditNote $record): string => $record->customer_name ?? 'Cliente')
+                    ->description(fn (CreditNote $record): ?string => $record->customer_tax_id),
                 Tables\Columns\TextColumn::make('subtotal')
                     ->label('Importe')
                     ->html()
-                    ->formatStateUsing(fn (?float $state, Invoice $record): string => self::formatMoneyWithOriginal($state, $record))
+                    ->formatStateUsing(fn (?float $state, CreditNote $record): string => self::formatMoneyWithOriginal($state, $record))
                     ->extraCellAttributes(['class' => 'text-end']),
-                Tables\Columns\TextColumn::make('computed_tax_amount')
+                Tables\Columns\TextColumn::make('tax')
                     ->label('Impuesto')
                     ->html()
-                    ->formatStateUsing(fn (?float $state, Invoice $record): string => self::formatMoneyWithOriginal($state, $record))
+                    ->formatStateUsing(fn (?float $state, CreditNote $record): string => self::formatMoneyWithOriginal($state, $record))
                     ->extraCellAttributes(['class' => 'text-end']),
                 Tables\Columns\TextColumn::make('total')
                     ->label('Total')
                     ->html()
-                    ->formatStateUsing(fn (?float $state, Invoice $record): string => self::formatMoneyWithOriginal($state, $record))
+                    ->formatStateUsing(fn (?float $state, CreditNote $record): string => self::formatMoneyWithOriginal($state, $record))
                     ->extraCellAttributes(['class' => 'text-end']),
                 Tables\Columns\BadgeColumn::make('currency')
                     ->label('Moneda')
@@ -99,19 +101,13 @@ class InvoiceResource extends Resource
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Estado')
                     ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'paid' => 'Pagada',
-                        'open' => 'Abierta',
+                        'issued' => 'Emitida',
                         'void' => 'Anulada',
-                        'uncollectible' => 'Incobrable',
-                        'draft' => 'Borrador',
                         default => ucfirst($state ?? '—'),
                     })
                     ->colors([
-                        'success' => 'paid',
-                        'info' => 'open',
-                        'gray' => 'void',
-                        'danger' => 'uncollectible',
-                        'warning' => 'draft',
+                        'success' => 'issued',
+                        'danger' => 'void',
                     ])
                     ->sortable()
                     ->extraCellAttributes(['class' => 'text-center'])
@@ -121,11 +117,8 @@ class InvoiceResource extends Resource
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Estado')
                     ->options([
-                        'paid' => 'Pagada',
-                        'open' => 'Abierta',
+                        'issued' => 'Emitida',
                         'void' => 'Anulada',
-                        'uncollectible' => 'Incobrable',
-                        'draft' => 'Borrador',
                     ]),
                 Tables\Filters\SelectFilter::make('currency')
                     ->label('Moneda')
@@ -137,37 +130,40 @@ class InvoiceResource extends Resource
             ])
             ->actions([])
             ->bulkActions([])
-            ->emptyStateHeading('No hay facturas registradas')
+            ->emptyStateHeading('No hay notas de crédito registradas')
             ->poll('60s');
     }
 
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListInvoices::route('/'),
+            'index' => Pages\ListCreditNotes::route('/'),
         ];
     }
 
-    private static function formatMoneyWithOriginal(?float $amount, Invoice $record): string
+    private static function formatMoneyWithOriginal(?float $amount, CreditNote $record): string
     {
         if ($amount === null) {
             return '—';
         }
 
-        $currency = strtoupper($record->currency ?? 'USD');
         $conversionService = app(CurrencyConversionService::class);
-        $converted = $conversionService->convert($amount, $currency, 'EUR');
-        $eurValue = $converted ?? ($currency === 'EUR' ? $amount : null);
+        $originalCurrency = $record->currency;
 
-        $main = number_format($eurValue ?? $amount, 2, ',', '.').' €';
+        $formattedEur = number_format($conversionService->convert($amount, $originalCurrency, 'EUR') ?? $amount, 2, ',', '.').' €';
 
-        if ($currency === 'EUR' || $eurValue === null) {
-            return "<div class=\"text-end\"><span class=\"block\">{$main}</span></div>";
+        if (strtoupper($originalCurrency) !== 'EUR') {
+            $formattedOriginal = number_format($amount, 2, ',', '.').' '.strtoupper($originalCurrency);
+
+            return <<<HTML
+                <div class="flex flex-col items-end">
+                    <span>{$formattedEur}</span>
+                    <span class="text-xs text-gray-500">{$formattedOriginal}</span>
+                </div>
+            HTML;
         }
 
-        $original = number_format($amount, 2, ',', '.').' '.$currency;
-
-        return "<div class=\"text-end\"><span class=\"block\">{$main}</span><br><span class=\"text-xs text-gray-500\">{$original}</span></div>";
+        return $formattedEur;
     }
 }
 
