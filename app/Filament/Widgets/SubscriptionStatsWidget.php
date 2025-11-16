@@ -96,38 +96,41 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         }
 
         return [
-            // PROFIT (NUEVOS)
-            Stat::make('Profit Total (EUR)', number_format($profit, 2, ',', '.').' €')
-                ->description('Ingresos - Gastos (suscripciones activas)')
-                ->descriptionIcon('heroicon-m-chart-bar')
-                ->color($profit >= 0 ? 'success' : 'danger'),
-
-            Stat::make('MRR Profit', number_format($mrrProfit, 2, ',', '.').' €')
-                ->description('MRR Ingresos - MRR Gastos')
-                ->descriptionIcon('heroicon-m-arrow-trending-up')
-                ->color($mrrProfit >= 0 ? 'success' : 'danger'),
-
-            // INGRESOS (NUEVOS)
+            // INGRESOS
             Stat::make('Ingresos Totales (EUR)', number_format($totalEurIncome, 2, ',', '.').' €')
                 ->description(number_format($activeSubscriptions, 0, ',', '.').' suscripciones activas')
                 ->descriptionIcon('heroicon-m-arrow-up-circle')
                 ->color('success'),
 
-            Stat::make('MRR Ingresos', number_format($mrrIncome, 2, ',', '.').' €')
-                ->description('Ingresos mensuales recurrentes')
-                ->descriptionIcon('heroicon-m-banknotes')
-                ->color('primary'),
-
-            // GASTOS (NUEVOS)
+            // GASTOS
             Stat::make('Gastos Totales (EUR)', number_format($totalEurExpenses, 2, ',', '.').' €')
                 ->description(number_format($activeExpenses, 0, ',', '.').' suscripciones activas')
                 ->descriptionIcon('heroicon-m-arrow-down-circle')
                 ->color('danger'),
 
+            // PROFIT TOTAL
+            Stat::make('Profit Total (EUR)', number_format($profit, 2, ',', '.').' €')
+                ->description('Ingresos - Gastos (suscripciones activas)')
+                ->descriptionIcon('heroicon-m-chart-bar')
+                ->color($profit >= 0 ? 'success' : 'danger'),
+
+            // MRR INGRESOS
+            Stat::make('MRR Ingresos', number_format($mrrIncome, 2, ',', '.').' €')
+                ->description('Ingresos mensuales recurrentes')
+                ->descriptionIcon('heroicon-m-banknotes')
+                ->color('primary'),
+
+            // MRR GASTOS
             Stat::make('MRR Gastos', number_format($mrrExpenses, 2, ',', '.').' €')
                 ->description('Gastos mensuales recurrentes')
                 ->descriptionIcon('heroicon-m-credit-card')
                 ->color('warning'),
+
+            // MRR PROFIT
+            Stat::make('MRR Profit', number_format($mrrProfit, 2, ',', '.').' €')
+                ->description('MRR Ingresos - MRR Gastos')
+                ->descriptionIcon('heroicon-m-arrow-trending-up')
+                ->color($mrrProfit >= 0 ? 'success' : 'danger'),
 
             // WIDGETS ORIGINALES
             Stat::make('Servicios en EUR', number_format($billedInEur, 2, ',', '.').' €')
