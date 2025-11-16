@@ -45,6 +45,16 @@ class ManualPurchaseManager
                 ])
                 ->default('month')
                 ->required(),
+            Select::make('status')
+                ->label('Estado')
+                ->options([
+                    'active' => 'Activa',
+                    'canceled' => 'Cancelada',
+                    'past_due' => 'Vencida',
+                    'incomplete' => 'Incompleta',
+                ])
+                ->default('active')
+                ->required(),
             Select::make('price_currency')
                 ->label('Moneda')
                 ->options([
@@ -93,7 +103,7 @@ class ManualPurchaseManager
             'amount_ars' => $conversion['ARS'] ?? null,
             'amount_eur' => $conversion['EUR'] ?? ($currency === 'EUR' ? $amount : null),
             'quantity' => 1,
-            'status' => 'active',
+            'status' => $data['status'] ?? 'active',
             'collection_method' => 'manual',
             'current_period_start' => now(),
             'current_period_end' => $data['current_period_end'],

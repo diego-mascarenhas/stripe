@@ -40,6 +40,7 @@ class SubscriptionsTable
                     ->wrap(),
                 Tables\Columns\TextColumn::make('plan_name')
                     ->label('Plan')
+                    ->description(fn (Subscription $record): ?string => $record->billing_frequency)
                     ->searchable()
                     ->wrap()
                     ->toggleable(),
@@ -53,41 +54,8 @@ class SubscriptionsTable
                         'danger' => 'buy',
                         'success' => 'sell',
                     ])
-                    ->action(
-                        Action::make('edit-buy-from-badge')
-                            ->label('Editar compra')
-                            ->icon('heroicon-o-pencil-square')
-                            ->color('gray')
-                            ->visible(fn (Subscription $record): bool => $record->type === 'buy')
-                            ->form(fn () => ManualPurchaseManager::schema())
-                            ->fillForm(function (Subscription $record): array {
-                                return [
-                                    'vendor_name' => $record->customer_name,
-                                    'vendor_email' => $record->customer_email,
-                                    'plan_name' => $record->plan_name,
-                                    'plan_interval' => $record->plan_interval ?? 'month',
-                                    'price_currency' => strtolower($record->price_currency ?? 'eur'),
-                                    'amount_total' => $record->amount_total ?? 0,
-                                    'current_period_end' => $record->current_period_end ?? now()->addMonth(),
-                                    'notes' => $record->invoice_note,
-                                ];
-                            })
-                            ->action(function (array $data, Subscription $record): void {
-                                ManualPurchaseManager::save($data, $record);
-
-                                Notification::make()
-                                    ->title('Compra actualizada')
-                                    ->body('La suscripción de compra se actualizó correctamente.')
-                                    ->success()
-                                    ->send();
-                            })
-                    )
                     ->sortable()
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('billing_frequency')
-                    ->label('Frecuencia')
-                    ->badge()
-                    ->color('gray'),
                 Tables\Columns\TextColumn::make('current_period_end')
                     ->label('Próxima')
                     ->date('d/m/Y')
@@ -185,7 +153,35 @@ class SubscriptionsTable
                     ]),
             ])
             ->recordUrl(fn (Subscription $record): string => SubscriptionResource::getUrl('view', ['record' => $record]))
-            ->actions([])
+            ->actions([
+                Action::make('edit')
+                    ->label('Editar')
+                    ->icon('heroicon-o-pencil-square')
+                    ->visible(fn (Subscription $record): bool => $record->type === 'buy')
+                    ->form(fn () => ManualPurchaseManager::schema())
+                    ->fillForm(function (Subscription $record): array {
+                        return [
+                            'vendor_name' => $record->customer_name,
+                            'vendor_email' => $record->customer_email,
+                            'plan_name' => $record->plan_name,
+                            'plan_interval' => $record->plan_interval ?? 'month',
+                            'status' => $record->status ?? 'active',
+                            'price_currency' => strtolower($record->price_currency ?? 'eur'),
+                            'amount_total' => $record->amount_total ?? 0,
+                            'current_period_end' => $record->current_period_end ?? now()->addMonth(),
+                            'notes' => $record->invoice_note,
+                        ];
+                    })
+                    ->action(function (array $data, Subscription $record): void {
+                        ManualPurchaseManager::save($data, $record);
+
+                        Notification::make()
+                            ->title('Compra actualizada')
+                            ->body('La suscripción de compra se actualizó correctamente.')
+                            ->success()
+                            ->send();
+                    }),
+            ])
             ->bulkActions([])
             ->emptyStateHeading('No hay suscripciones registradas')
             ->poll('60s');
