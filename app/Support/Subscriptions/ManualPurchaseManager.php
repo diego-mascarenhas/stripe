@@ -41,19 +41,8 @@ class ManualPurchaseManager
                     'biennial' => 'Cada 2 años',
                     'quinquennial' => 'Cada 5 años',
                     'decennial' => 'Cada 10 años',
-                    'indefinite' => 'Indefinido',
                 ])
                 ->default('month')
-                ->required(),
-            Select::make('status')
-                ->label('Estado')
-                ->options([
-                    'active' => 'Activa',
-                    'canceled' => 'Cancelada',
-                    'past_due' => 'Vencida',
-                    'incomplete' => 'Incompleta',
-                ])
-                ->default('active')
                 ->required(),
             Select::make('price_currency')
                 ->label('Moneda')
@@ -76,6 +65,14 @@ class ManualPurchaseManager
             Textarea::make('notes')
                 ->label('Notas')
                 ->rows(3),
+            Select::make('status')
+                ->label('Estado')
+                ->options([
+                    'active' => 'Active',
+                    'canceled' => 'Canceled',
+                ])
+                ->default('active')
+                ->required(),
         ];
     }
 
@@ -84,7 +81,7 @@ class ManualPurchaseManager
         $currency = strtoupper($data['price_currency']);
         $amount = (float) $data['amount_total'];
         $interval = $data['plan_interval'];
-        $intervalCount = $interval === 'indefinite' ? null : 1;
+        $intervalCount = 1;
 
         $conversion = app(CurrencyConversionService::class)
             ->convertForTargets($amount, $currency, ['USD', 'ARS', 'EUR']);
