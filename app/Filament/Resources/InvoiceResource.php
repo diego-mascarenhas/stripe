@@ -30,13 +30,17 @@ class InvoiceResource extends Resource
     {
         return $table
             ->defaultSort('invoice_created_at', 'desc')
-            ->modifyQueryUsing(fn ($query) => $query->where('status', '!=', 'draft'))
+            ->modifyQueryUsing(fn ($query) => $query
+                ->where('status', '!=', 'draft')
+                ->orderByDesc('invoice_created_at')
+                ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
+            )
             ->columns([
                 Tables\Columns\TextColumn::make('number')
                     ->label('Número de factura')
                     ->description(fn (Invoice $record): ?string => $record->invoice_created_at?->format('d/m/Y'))
                     ->searchable()
-                    ->sortable()
+                    ->sortable(false)
                     ->default(fn (Invoice $record): string => $record->stripe_id),
                 Tables\Columns\TextColumn::make('customer_name')
                     ->label('Cliente')

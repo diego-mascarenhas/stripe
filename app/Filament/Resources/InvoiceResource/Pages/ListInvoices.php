@@ -73,6 +73,7 @@ class ListInvoices extends ListRecords
 
             Invoice::where('status', '!=', 'draft')
                 ->orderByDesc('invoice_created_at')
+                ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
                 ->chunk(200, function ($chunk) use ($handle, $conversionService) {
                     foreach ($chunk as $invoice) {
                         $currency = strtoupper($invoice->currency ?? 'USD');
