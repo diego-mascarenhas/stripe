@@ -66,9 +66,6 @@ class SubscriptionsTable
                                     'vendor_email' => $record->customer_email,
                                     'plan_name' => $record->plan_name,
                                     'plan_interval' => $record->plan_interval ?? 'month',
-                                    'plan_interval_count' => $record->plan_interval === 'indefinite'
-                                        ? null
-                                        : ($record->plan_interval_count ?? 1),
                                     'price_currency' => strtolower($record->price_currency ?? 'eur'),
                                     'amount_total' => $record->amount_total ?? 0,
                                     'current_period_end' => $record->current_period_end ?? now()->addMonth(),

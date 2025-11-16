@@ -44,15 +44,7 @@ class ManualPurchaseManager
                     'indefinite' => 'Indefinido',
                 ])
                 ->default('month')
-                ->reactive()
                 ->required(),
-            TextInput::make('plan_interval_count')
-                ->label('Cantidad de periodos')
-                ->numeric()
-                ->minValue(1)
-                ->default(1)
-                ->required(fn ($get) => $get('plan_interval') !== 'indefinite')
-                ->visible(fn ($get) => $get('plan_interval') !== 'indefinite'),
             Select::make('price_currency')
                 ->label('Moneda')
                 ->options([
@@ -82,9 +74,7 @@ class ManualPurchaseManager
         $currency = strtoupper($data['price_currency']);
         $amount = (float) $data['amount_total'];
         $interval = $data['plan_interval'];
-        $intervalCount = $interval === 'indefinite'
-            ? null
-            : (int) ($data['plan_interval_count'] ?? 1);
+        $intervalCount = $interval === 'indefinite' ? null : 1;
 
         $conversion = app(CurrencyConversionService::class)
             ->convertForTargets($amount, $currency, ['USD', 'ARS', 'EUR']);
