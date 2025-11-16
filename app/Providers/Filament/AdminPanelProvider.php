@@ -2,7 +2,6 @@
 
 namespace App\Providers\Filament;
 
-use App\Filament\Widgets\ExchangeRatesWidget;
 use App\Filament\Widgets\SubscriptionStatsWidget;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -39,7 +38,6 @@ class AdminPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
                 SubscriptionStatsWidget::class,
-                ExchangeRatesWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,
