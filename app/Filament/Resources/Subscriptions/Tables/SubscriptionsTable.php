@@ -28,12 +28,32 @@ class SubscriptionsTable
         };
 
         return $table
-            ->defaultSort('current_period_end', 'desc')
+            ->defaultSort('current_period_end', 'asc')
             ->columns([
                 Tables\Columns\TextColumn::make('customer_name')
                     ->label('Cliente')
                     ->description(fn (Subscription $record): ?string => $record->customer_email)
                     ->searchable()
+                    ->wrap(),
+                Tables\Columns\TextColumn::make('plan_name')
+                    ->label('Plan')
+                    ->searchable()
+                    ->wrap()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('billing_frequency')
+                    ->label('Frecuencia')
+                    ->badge()
+                    ->color('gray'),
+                Tables\Columns\TextColumn::make('current_period_end')
+                    ->label('Próxima')
+                    ->date('d/m/Y')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('amount_original')
+                    ->label('Valor')
+                    ->state(fn (Subscription $record): string => $formatAmount(
+                        $originalAmount($record),
+                        $record->price_currency,
+                    ))
                     ->wrap(),
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Estado')
@@ -53,23 +73,6 @@ class SubscriptionsTable
                         'danger' => static fn ($state): bool => in_array($state, ['canceled', 'unpaid', 'incomplete_expired']),
                     ])
                     ->sortable(),
-                Tables\Columns\TextColumn::make('plan_name')
-                    ->label('Plan')
-                    ->searchable()
-                    ->wrap()
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('billing_frequency')
-                    ->label('Frecuencia')
-                    ->badge()
-                    ->color('gray')
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('amount_original')
-                    ->label('Valor')
-                    ->state(fn (Subscription $record): string => $formatAmount(
-                        $originalAmount($record),
-                        $record->price_currency,
-                    ))
-                    ->wrap(),
                 Tables\Columns\TextColumn::make('amount_usd')
                     ->label('USD')
                     ->state(fn (Subscription $record): string => $formatAmount(
@@ -98,22 +101,15 @@ class SubscriptionsTable
                     ->label('País')
                     ->badge()
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? '—'))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\BadgeColumn::make('price_currency')
                     ->label('Moneda facturación')
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? 'USD'))
                     ->colors([
                         'primary',
                     ])
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('current_period_end')
-                    ->label('Próximo ciclo')
-                    ->state(fn (Subscription $record): string => $record->current_period_end
-                        ? $record->current_period_end->format('d/m/Y') . ' (' . $record->current_period_end->diffForHumans() . ')'
-                        : '—')
-                    ->wrap()
-                    ->sortable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
