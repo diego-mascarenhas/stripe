@@ -144,8 +144,8 @@ class SyncStripeSubscriptions
             'amount_usd' => $convertedAmounts['USD'] ?? ($priceCurrency === 'USD' ? $amountForNote : null),
             'amount_ars' => $convertedAmounts['ARS'] ?? null,
             'amount_eur' => $convertedAmounts['EUR'] ?? null,
-            'current_period_start' => $this->normalizeTimestamp(Arr::get($payload, 'current_period_start')),
-            'current_period_end' => $this->normalizeTimestamp(Arr::get($payload, 'current_period_end')),
+            'current_period_start' => $this->resolveCurrentPeriodStart($payload, $item),
+            'current_period_end' => $this->resolveCurrentPeriodEnd($payload, $item),
             'cancel_at_period_end' => (bool) Arr::get($payload, 'cancel_at_period_end', false),
             'canceled_at' => $this->normalizeTimestamp(Arr::get($payload, 'canceled_at')),
             'raw_payload' => $payload,
@@ -196,6 +196,25 @@ class SyncStripeSubscriptions
         return collect($taxIds)
             ->filter(fn ($tax) => filled(Arr::get($tax, 'value')))
             ->first();
+    }
+
+    private function resolveCurrentPeriodStart(array $payload, array $item): ?Carbon
+    {
+        // Try multiple locations where Stripe might store current_period_start
+        $timestamp = Arr::get($payload, 'current_period_start')
+            ?? Arr::get($item, 'current_period_start')
+            ?? Arr::get($payload, 'billing_cycle_anchor');
+
+        return $this->normalizeTimestamp($timestamp);
+    }
+
+    private function resolveCurrentPeriodEnd(array $payload, array $item): ?Carbon
+    {
+        // Try multiple locations where Stripe might store current_period_end
+        $timestamp = Arr::get($payload, 'current_period_end')
+            ?? Arr::get($item, 'current_period_end');
+
+        return $this->normalizeTimestamp($timestamp);
     }
 }
 
