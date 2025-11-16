@@ -98,6 +98,8 @@ class SyncStripeInvoices
             'total' => $this->normalizeAmount(Arr::get($payload, 'total')),
             'total_discount_amount' => $totalDiscountAmount,
             'applied_coupons' => ! empty($appliedCoupons) ? implode(', ', $appliedCoupons) : null,
+            'customer_tax_id' => $this->resolveCustomerTaxId($payload),
+            'customer_address_country' => $this->resolveCustomerCountry($payload),
             'invoice_created_at' => $this->normalizeTimestamp(Arr::get($payload, 'created')),
             'invoice_due_date' => $this->normalizeTimestamp(Arr::get($payload, 'due_date')),
             'paid' => (bool) Arr::get($payload, 'paid', false),
@@ -105,6 +107,35 @@ class SyncStripeInvoices
             'invoice_pdf' => Arr::get($payload, 'invoice_pdf'),
             'raw_payload' => $payload,
         ];
+    }
+
+    private function resolveCustomerTaxId(array $payload): ?string
+    {
+        $taxIds = Arr::get($payload, 'customer_details.tax_ids', []);
+
+        if (empty($taxIds) || ! is_array($taxIds)) {
+            return null;
+        }
+
+        foreach ($taxIds as $taxId) {
+            $value = Arr::get($taxId, 'value');
+
+            if (filled($value)) {
+                $type = Arr::get($taxId, 'type');
+
+                return $type ? "{$value} ({$type})" : $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveCustomerCountry(array $payload): ?string
+    {
+        $country = Arr::get($payload, 'customer_details.address.country')
+            ?? Arr::get($payload, 'customer_address.country');
+
+        return $country ? strtoupper($country) : null;
     }
 
     private function normalizeAmount(?int $amount): ?float

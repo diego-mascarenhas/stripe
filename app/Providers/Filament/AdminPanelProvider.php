@@ -2,7 +2,6 @@
 
 namespace App\Providers\Filament;
 
-use App\Filament\Pages\Invoices as InvoicesPage;
 use App\Filament\Widgets\ExchangeRatesWidget;
 use App\Filament\Widgets\SubscriptionStatsWidget;
 use Filament\Http\Middleware\Authenticate;
@@ -36,7 +35,6 @@ class AdminPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
                 Dashboard::class,
-                InvoicesPage::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
