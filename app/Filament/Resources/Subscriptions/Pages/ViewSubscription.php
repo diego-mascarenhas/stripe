@@ -64,16 +64,16 @@ class ViewSubscription extends ViewRecord
                 ->all();
 
             $invoices = $stripe->invoices->all([
-                'customer' => $this->record->customer_id,
-                'limit' => 10,
+                'subscription' => $this->record->stripe_id,
+                'limit' => 50,
             ]);
 
             $this->stripeInvoices = collect($invoices->data)
                 ->map(function ($invoice) {
                     return [
                         'id' => $invoice->id,
-                        'number' => $invoice->number,
-                        'amount' => ($invoice->amount_due ?? 0) / 100,
+                        'number' => $invoice->number ?? $invoice->id,
+                        'amount' => ($invoice->total ?? 0) / 100,
                         'currency' => strtoupper($invoice->currency ?? 'usd'),
                         'status' => $invoice->status,
                         'created_at' => Carbon::createFromTimestamp($invoice->created ?? now()->timestamp),

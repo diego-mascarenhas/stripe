@@ -4,7 +4,6 @@ namespace App\Support\Invoices;
 
 use App\Models\Subscription;
 use App\Services\Currency\CurrencyConversionService;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 
 class InvoiceNoteBuilder
@@ -26,23 +25,24 @@ class InvoiceNoteBuilder
 
     public function build(float $amount, string $currency): ?string
     {
-        $targets = ['ARS', 'EUR'];
+        $currency = strtoupper($currency);
 
-        $conversions = $this->conversionService->convertForTargets($amount, strtoupper($currency), $targets);
+        if ($currency === 'EUR') {
+            return null;
+        }
 
-        $ars = Arr::get($conversions, 'ARS');
-        $eur = Arr::get($conversions, 'EUR');
+        $eur = $this->conversionService->convert($amount, $currency, 'EUR');
 
-        if ($ars === null || $eur === null) {
+        if ($eur === null) {
             return null;
         }
 
         $date = $this->conversionService->lastUpdatedAt()?->format('d/m/Y') ?? now()->format('d/m/Y');
 
         return sprintf(
-            'Valor aproximado según tipo de cambio estimado al %s: %s ARS equivalentes a %s EUR.',
+            'Valor aproximado según tipo de cambio estimado al %s: %s equivalentes a %s EUR.',
             $date,
-            $this->formatAmount($ars, 'ARS'),
+            $this->formatAmount($amount, $currency),
             $this->formatAmount($eur, 'EUR'),
         );
     }
