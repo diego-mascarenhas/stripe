@@ -44,12 +44,29 @@ class ChangesRelationManager extends RelationManager
 
     private function formatArray($state): string
     {
-        if (is_string($state)) {
-            $decoded = json_decode($state, true);
-            $state = json_last_error() === JSON_ERROR_NONE ? $decoded : [$state];
+        // Handle null or empty
+        if ($state === null || $state === '' || $state === []) {
+            return '—';
         }
 
-        if (! is_array($state) || empty($state)) {
+        // If it's a string, try to decode it as JSON
+        if (is_string($state)) {
+            $decoded = json_decode($state, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $state = $decoded;
+            } else {
+                // If it's not JSON, just return the string
+                return $state ?: '—';
+            }
+        }
+
+        // At this point, state should be an array
+        if (! is_array($state)) {
+            // Fallback: convert to string if possible
+            return is_scalar($state) ? (string) $state : '—';
+        }
+
+        if (empty($state)) {
             return '—';
         }
 
@@ -72,6 +89,10 @@ class ChangesRelationManager extends RelationManager
 
             if (is_bool($value)) {
                 return $value ? 'true' : 'false';
+            }
+
+            if ($value === null) {
+                return 'null';
             }
 
             return (string) $value;

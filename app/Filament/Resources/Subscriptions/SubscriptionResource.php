@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Subscriptions;
 
 use App\Filament\Resources\Subscriptions\Pages\ListSubscriptions;
 use App\Filament\Resources\Subscriptions\Pages\ViewSubscription;
-use App\Filament\Resources\Subscriptions\RelationManagers\ChangesRelationManager;
 use App\Filament\Resources\Subscriptions\Tables\SubscriptionsTable;
 use App\Models\Subscription;
 use BackedEnum;
@@ -22,6 +21,8 @@ class SubscriptionResource extends Resource
 
     protected static ?string $modelLabel = 'Suscripción';
 
+    protected static ?string $pluralModelLabel = 'Suscripciones';
+
     public static function table(Table $table): Table
     {
         return SubscriptionsTable::configure($table);
@@ -29,9 +30,7 @@ class SubscriptionResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            ChangesRelationManager::class,
-        ];
+        return [];
     }
 
     public static function getPages(): array

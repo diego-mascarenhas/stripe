@@ -5,9 +5,12 @@ namespace App\Filament\Resources\Subscriptions\Pages;
 use App\Actions\Subscriptions\RefreshSubscriptionNotes;
 use App\Actions\Subscriptions\SyncStripeSubscriptions as SyncStripeSubscriptionsAction;
 use App\Filament\Resources\Subscriptions\SubscriptionResource;
+use App\Models\Subscription;
+use App\Support\Subscriptions\ManualPurchaseManager;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Actions\Action as TableAction;
 
 class ListSubscriptions extends ListRecords
 {
@@ -31,6 +34,21 @@ class ListSubscriptions extends ListRecords
                         ->send();
                 })
                 ->color('primary'),
+            Action::make('add-buy-subscription')
+                ->label('Registrar compra')
+                ->icon('heroicon-o-plus')
+                ->color('gray')
+                ->form(ManualPurchaseManager::schema())
+                ->action(function (array $data): void {
+                    ManualPurchaseManager::save($data);
+
+                    Notification::make()
+                        ->title('Compra registrada')
+                        ->body('La suscripción de compra se agregó correctamente.')
+                        ->success()
+                        ->send();
+                }),
         ];
     }
 }
+

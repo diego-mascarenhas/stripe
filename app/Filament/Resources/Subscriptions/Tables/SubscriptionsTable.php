@@ -4,6 +4,9 @@ namespace App\Filament\Resources\Subscriptions\Tables;
 
 use App\Filament\Resources\Subscriptions\SubscriptionResource;
 use App\Models\Subscription;
+use App\Support\Subscriptions\ManualPurchaseManager;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Table;
 
@@ -28,82 +31,112 @@ class SubscriptionsTable
         };
 
         return $table
-            ->defaultSort('current_period_end', 'desc')
+            ->defaultSort('current_period_end', 'asc')
             ->columns([
                 Tables\Columns\TextColumn::make('customer_name')
                     ->label('Cliente')
                     ->description(fn (Subscription $record): ?string => $record->customer_email)
                     ->searchable()
                     ->wrap(),
+                Tables\Columns\TextColumn::make('plan_name')
+                    ->label('Plan')
+                    ->description(fn (Subscription $record): ?string => $record->billing_frequency)
+                    ->searchable()
+                    ->wrap()
+                    ->toggleable(),
+                Tables\Columns\BadgeColumn::make('type')
+                    ->label('Tipo')
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'buy' => 'Compra',
+                        default => 'Venta',
+                    })
+                    ->colors([
+                        'danger' => 'buy',
+                        'success' => 'sell',
+                    ])
+                    ->sortable()
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('current_period_end')
+                    ->label('Próxima')
+                    ->date('d/m/Y')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('amount_original')
+                    ->label('Valor')
+                    ->state(fn (Subscription $record): string => $formatAmount(
+                        $originalAmount($record),
+                        $record->price_currency,
+                    ))
+                    ->wrap(),
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Estado')
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'active' => 'Activa',
+                        'past_due' => 'Vencida',
+                        'canceled' => 'Cancelada',
+                        'trialing' => 'En prueba',
+                        'incomplete' => 'Incompleta',
+                        'unpaid' => 'Impaga',
+                        'incomplete_expired' => 'Expirada',
+                        default => ucfirst($state ?? '—'),
+                    })
                     ->colors([
                         'success' => static fn ($state): bool => in_array($state, ['active', 'trialing']),
                         'warning' => static fn ($state): bool => in_array($state, ['past_due', 'incomplete']),
                         'danger' => static fn ($state): bool => in_array($state, ['canceled', 'unpaid', 'incomplete_expired']),
                     ])
                     ->sortable(),
-                Tables\Columns\TextColumn::make('plan_name')
-                    ->label('Plan')
-                    ->searchable()
-                    ->wrap()
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('billing_frequency')
-                    ->label('Frecuencia')
-                    ->state(fn (Subscription $record): ?string => self::formatFrequency($record))
-                    ->badge()
-                    ->color('gray')
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('amount_original')
-                    ->label('Importe original')
-                    ->state(fn (Subscription $record): string => $formatAmount(
-                        $originalAmount($record),
-                        $record->price_currency,
-                    ))
-                    ->wrap(),
                 Tables\Columns\TextColumn::make('amount_usd')
                     ->label('USD')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $record->amount_usd ?? $record->amount_total ?? $record->amount_subtotal,
                         'USD',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('amount_ars')
                     ->label('ARS')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $record->amount_ars,
                         'ARS',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('amount_eur')
                     ->label('EUR')
                     ->state(fn (Subscription $record): string => $formatAmount(
                         $record->amount_eur,
                         'EUR',
                     ))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('customer_country')
                     ->label('País')
                     ->badge()
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? '—'))
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\BadgeColumn::make('price_currency')
                     ->label('Moneda facturación')
                     ->formatStateUsing(fn (?string $state): string => strtoupper($state ?? 'USD'))
                     ->colors([
                         'primary',
-                    ]),
+                    ])
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Estado')
                     ->multiple()
                     ->default(['past_due', 'active'])
-                    ->options(fn (): array => Subscription::query()
-                        ->whereNotNull('status')
-                        ->distinct()
-                        ->pluck('status', 'status')
-                        ->toArray()),
+                    ->options([
+                        'active' => 'Activa',
+                        'past_due' => 'Vencida',
+                        'canceled' => 'Cancelada',
+                        'trialing' => 'En prueba',
+                        'incomplete' => 'Incompleta',
+                        'unpaid' => 'Impaga',
+                        'incomplete_expired' => 'Expirada',
+                    ]),
                 Tables\Filters\SelectFilter::make('plan_name')
                     ->label('Plan')
                     ->options(fn (): array => Subscription::query()
@@ -112,35 +145,45 @@ class SubscriptionsTable
                         ->orderBy('plan_name')
                         ->pluck('plan_name', 'plan_name')
                         ->toArray()),
+                Tables\Filters\SelectFilter::make('type')
+                    ->label('Tipo')
+                    ->options([
+                        'sell' => 'Venta',
+                        'buy' => 'Compra',
+                    ]),
             ])
             ->recordUrl(fn (Subscription $record): string => SubscriptionResource::getUrl('view', ['record' => $record]))
-            ->actions([])
+            ->actions([
+                Action::make('edit')
+                    ->label('Editar')
+                    ->icon('heroicon-o-pencil-square')
+                    ->visible(fn (Subscription $record): bool => $record->type === 'buy')
+                    ->form(fn () => ManualPurchaseManager::schema())
+                    ->fillForm(function (Subscription $record): array {
+                        return [
+                            'vendor_name' => $record->customer_name,
+                            'vendor_email' => $record->customer_email,
+                            'plan_name' => $record->plan_name,
+                            'plan_interval' => $record->plan_interval ?? 'month',
+                            'status' => $record->status ?? 'active',
+                            'price_currency' => strtolower($record->price_currency ?? 'eur'),
+                            'amount_total' => $record->amount_total ?? 0,
+                            'current_period_end' => $record->current_period_end ?? now()->addMonth(),
+                            'notes' => $record->invoice_note,
+                        ];
+                    })
+                    ->action(function (array $data, Subscription $record): void {
+                        ManualPurchaseManager::save($data, $record);
+
+                        Notification::make()
+                            ->title('Compra actualizada')
+                            ->body('La suscripción de compra se actualizó correctamente.')
+                            ->success()
+                            ->send();
+                    }),
+            ])
             ->bulkActions([])
             ->emptyStateHeading('No hay suscripciones registradas')
             ->poll('60s');
-    }
-
-    private static function formatFrequency(Subscription $subscription): ?string
-    {
-        if (! $subscription->plan_interval) {
-            return null;
-        }
-
-        $count = $subscription->plan_interval_count ?? 1;
-        $intervalMap = [
-            'day' => ['singular' => 'día', 'plural' => 'días'],
-            'week' => ['singular' => 'semana', 'plural' => 'semanas'],
-            'month' => ['singular' => 'mes', 'plural' => 'meses'],
-            'year' => ['singular' => 'año', 'plural' => 'años'],
-        ];
-
-        $interval = $intervalMap[$subscription->plan_interval] ?? [
-            'singular' => $subscription->plan_interval,
-            'plural' => "{$subscription->plan_interval}s",
-        ];
-
-        $label = $count > 1 ? $interval['plural'] : $interval['singular'];
-
-        return "{$count} {$label}";
     }
 }
