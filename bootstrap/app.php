@@ -15,7 +15,26 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withSchedule(function (Schedule $schedule): void {
-        $schedule->command('currency:sync')->dailyAt('06:00');
+        // Currency rates: Ejecutar cada hora, pero solo sincronizar si han pasado más de 23 horas desde la última actualización
+        $schedule->command('currency:sync')
+            ->hourly()
+            ->withoutOverlapping(10)
+            ->when(function () {
+                $lastRate = \App\Models\ExchangeRate::latest('created_at')->first();
+                // Si no hay registros, ejecutar inmediatamente
+                if (!$lastRate) {
+                    return true;
+                }
+                // Solo ejecutar si han pasado más de 23 horas
+                return $lastRate->created_at->diffInHours(now()) >= 23;
+            })
+            ->onSuccess(function () {
+                \Log::info('Currency rates synchronized successfully');
+            })
+            ->onFailure(function () {
+                \Log::error('Currency rates sync failed');
+            });
+
         $schedule->command('subscriptions:sync')->dailyAt('06:15');
         $schedule->command('invoices:sync')->dailyAt('06:30');
         $schedule->command('creditnotes:sync')->dailyAt('06:45');
