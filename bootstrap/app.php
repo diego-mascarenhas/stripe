@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withSchedule(function (Schedule $schedule): void {
-        // Currency rates: Ejecutar cada hora, pero solo sincronizar si han pasado más de 23 horas desde la última actualización
+        // Currency rates: Ejecutar cada hora, sincronizar si han pasado 1 hora desde la última actualización
         $schedule->command('currency:sync')
             ->hourly()
             ->withoutOverlapping(10)
@@ -25,19 +25,51 @@ return Application::configure(basePath: dirname(__DIR__))
                 if (!$lastRate) {
                     return true;
                 }
-                // Solo ejecutar si han pasado más de 23 horas
-                return $lastRate->created_at->diffInHours(now()) >= 23;
+                // Ejecutar si ha pasado 1 hora o más
+                return $lastRate->created_at->diffInHours(now()) >= 1;
             })
             ->onSuccess(function () {
-                \Log::info('Currency rates synchronized successfully');
+                \Illuminate\Support\Facades\Log::info('Currency rates synchronized successfully');
             })
             ->onFailure(function () {
-                \Log::error('Currency rates sync failed');
+                \Illuminate\Support\Facades\Log::error('Currency rates sync failed');
             });
 
-        $schedule->command('subscriptions:sync')->dailyAt('06:15');
-        $schedule->command('invoices:sync')->dailyAt('06:30');
-        $schedule->command('creditnotes:sync')->dailyAt('06:45');
+        // Subscriptions: Ejecutar cada 4 horas
+        $schedule->command('subscriptions:sync')
+            ->cron('0 */4 * * *')
+            ->withoutOverlapping(15)
+            ->runInBackground()
+            ->onSuccess(function () {
+                \Illuminate\Support\Facades\Log::info('Subscriptions synchronized successfully');
+            })
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Subscriptions sync failed');
+            });
+
+        // Invoices: Ejecutar cada 4 horas (desplazado 15 minutos)
+        $schedule->command('invoices:sync')
+            ->cron('15 */4 * * *')
+            ->withoutOverlapping(15)
+            ->runInBackground()
+            ->onSuccess(function () {
+                \Illuminate\Support\Facades\Log::info('Invoices synchronized successfully');
+            })
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Invoices sync failed');
+            });
+
+        // Credit Notes: Ejecutar cada 4 horas (desplazado 30 minutos)
+        $schedule->command('creditnotes:sync')
+            ->cron('30 */4 * * *')
+            ->withoutOverlapping(15)
+            ->runInBackground()
+            ->onSuccess(function () {
+                \Illuminate\Support\Facades\Log::info('Credit notes synchronized successfully');
+            })
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Credit notes sync failed');
+            });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
