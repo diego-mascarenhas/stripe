@@ -36,6 +36,10 @@ class SyncStripeSubscriptions
             $subscription = Subscription::firstWhere('stripe_id', $mapped['stripe_id']);
 
             if ($subscription) {
+                // PROTECCIÓN: No actualizar suscripciones de tipo 'buy' (son manuales)
+                if ($subscription->type === 'buy') {
+                    continue;
+                }
                 $this->updateSubscription($subscription, $mapped);
             } else {
                 $subscription = Subscription::create($mapped + ['last_synced_at' => now()]);
