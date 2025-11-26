@@ -39,6 +39,7 @@ class Subscription extends Model
         'amount_ars',
         'amount_eur',
         'raw_payload',
+        'data',
     ];
 
     protected $casts = [
@@ -54,6 +55,7 @@ class Subscription extends Model
         'amount_ars' => 'decimal:2',
         'amount_eur' => 'decimal:2',
         'raw_payload' => 'array',
+        'data' => 'array',
     ];
 
     protected $attributes = [

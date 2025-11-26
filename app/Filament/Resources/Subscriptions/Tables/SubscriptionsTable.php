@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\Subscriptions\Tables;
 
+use App\Actions\Subscriptions\UpdateStripeSubscriptionMetadata;
 use App\Filament\Resources\Subscriptions\SubscriptionResource;
 use App\Models\Subscription;
 use App\Support\Subscriptions\ManualPurchaseManager;
+use App\Support\Subscriptions\SubscriptionMetadataManager;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Tables;
@@ -122,6 +124,18 @@ class SubscriptionsTable
                         'primary',
                     ])
                     ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('data.server')
+                    ->label('Servidor')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('data.domain')
+                    ->label('Dominio')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('data.user')
+                    ->label('Usuario')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('data.email')
+                    ->label('Email metadata')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -180,6 +194,29 @@ class SubscriptionsTable
                             ->body('La suscripción de compra se actualizó correctamente.')
                             ->success()
                             ->send();
+                    }),
+                Action::make('metadata')
+                    ->label('Metadata')
+                    ->icon('heroicon-o-tag')
+                    ->visible(fn (Subscription $record): bool => $record->type === 'sell')
+                    ->form(fn () => SubscriptionMetadataManager::schema())
+                    ->fillForm(fn (Subscription $record): array => SubscriptionMetadataManager::fillForm($record))
+                    ->action(function (array $data, Subscription $record): void {
+                        try {
+                            app(UpdateStripeSubscriptionMetadata::class)->handle($record, $data);
+
+                            Notification::make()
+                                ->title('Metadata actualizada')
+                                ->body('La metadata de la suscripción se actualizó correctamente en Stripe.')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $exception) {
+                            Notification::make()
+                                ->title('Error al actualizar')
+                                ->body('No se pudo actualizar la metadata: '.$exception->getMessage())
+                                ->danger()
+                                ->send();
+                        }
                     }),
             ])
             ->bulkActions([])
