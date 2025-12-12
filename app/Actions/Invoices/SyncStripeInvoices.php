@@ -24,6 +24,7 @@ class SyncStripeInvoices
                 'expand' => [
                     'data.customer',
                     'data.subscription',
+                    'data.default_payment_method',
                 ],
             ];
 
