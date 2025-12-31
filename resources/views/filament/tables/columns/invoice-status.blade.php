@@ -52,7 +52,10 @@
                     {{ $statusLabel }}
                 </x-filament::badge>
 
-                @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4')
+                <x-filament::icon
+                    icon="heroicon-o-chat-bubble-left-right"
+                    class="h-4 w-4"
+                />
             </a>
         @else
             <x-filament::badge color="{{ $statusColor }}">
@@ -66,7 +69,10 @@
                 class="inline-flex items-center text-primary-600 hover:text-primary-700 fi-link"
                 aria-label="Enviar recordatorio por Email"
             >
-                @svg('heroicon-o-envelope', 'w-4 h-4')
+                <x-filament::icon
+                    icon="heroicon-o-envelope"
+                    class="h-4 w-4"
+                />
             </a>
         @endif
     </div>
