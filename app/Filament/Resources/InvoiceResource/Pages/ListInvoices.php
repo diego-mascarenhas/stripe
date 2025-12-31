@@ -71,60 +71,92 @@ class ListInvoices extends ListRecords
 
             $conversionService = app(CurrencyConversionService::class);
 
-            Invoice::where('status', '!=', 'draft')
-                ->orderByDesc('invoice_created_at')
-                ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
-                ->chunk(200, function ($chunk) use ($handle, $conversionService) {
-                    foreach ($chunk as $invoice) {
-                        $currency = strtoupper($invoice->currency ?? 'USD');
-                        $subtotal = $invoice->subtotal ?? 0;
-                        $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
-                        $total = $invoice->total ?? 0;
+            // Obtener query con filtros aplicados
+            $query = $this->getFilteredTableQuery();
 
-                        // Tax only shows for EUR invoices
-                        $taxDisplay = $currency === 'EUR' ? number_format($tax, 2, ',', '.') : '';
+            $query->chunk(200, function ($chunk) use ($handle, $conversionService) {
+                foreach ($chunk as $invoice) {
+                    $currency = strtoupper($invoice->currency ?? 'USD');
+                    $subtotal = $invoice->subtotal ?? 0;
+                    $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
+                    $total = $invoice->total ?? 0;
 
-                        // Convert total to EUR
-                        $totalEur = $conversionService->convert($total, $currency, 'EUR');
-                        $totalEurFormatted = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
+                    // Tax only shows for EUR invoices
+                    $taxDisplay = $currency === 'EUR' ? number_format($tax, 2, ',', '.') : '';
 
-                        // Extract clean tax ID (number only)
-                        $taxId = $invoice->customer_tax_id;
-                        if ($taxId && preg_match('/^(.+?)\s*\(([^)]+)\)$/', $taxId, $matches)) {
-                            $taxId = $matches[1];
-                        } elseif ($taxId && preg_match('/^([\d\-]+)([a-z_]+)$/i', $taxId, $matches)) {
-                            $taxId = $matches[1];
-                        }
+                    // Convert total to EUR
+                    $totalEur = $conversionService->convert($total, $currency, 'EUR');
+                    $totalEurFormatted = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
 
-                        // Status translation
-                        $statusLabel = match ($invoice->status) {
-                            'paid' => 'Pagada',
-                            'open' => 'Abierta',
-                            'void' => 'Anulada',
-                            'uncollectible' => 'Incobrable',
-                            'draft' => 'Borrador',
-                            default => ucfirst($invoice->status ?? '—'),
-                        };
-
-                        fputcsv($handle, [
-                            $invoice->number ?? $invoice->stripe_id,
-                            $invoice->invoice_created_at?->format('d/m/Y') ?? '',
-                            $invoice->customer_name ?? '',
-                            $taxId ?? '',
-                            number_format($subtotal, 2, ',', '.'),
-                            $currency,
-                            $taxDisplay,
-                            $totalEurFormatted,
-                            strtoupper($invoice->customer_address_country ?? ''),
-                            $statusLabel,
-                        ]);
+                    // Extract clean tax ID (number only)
+                    $taxId = $invoice->customer_tax_id;
+                    if ($taxId && preg_match('/^(.+?)\s*\(([^)]+)\)$/', $taxId, $matches)) {
+                        $taxId = $matches[1];
+                    } elseif ($taxId && preg_match('/^([\d\-]+)([a-z_]+)$/i', $taxId, $matches)) {
+                        $taxId = $matches[1];
                     }
-                });
+
+                    // Status translation
+                    $statusLabel = match ($invoice->status) {
+                        'paid' => 'Pagada',
+                        'open' => 'Abierta',
+                        'void' => 'Anulada',
+                        'uncollectible' => 'Incobrable',
+                        'draft' => 'Borrador',
+                        default => ucfirst($invoice->status ?? '—'),
+                    };
+
+                    fputcsv($handle, [
+                        $invoice->number ?? $invoice->stripe_id,
+                        $invoice->invoice_created_at?->format('d/m/Y') ?? '',
+                        $invoice->customer_name ?? '',
+                        $taxId ?? '',
+                        number_format($subtotal, 2, ',', '.'),
+                        $currency,
+                        $taxDisplay,
+                        $totalEurFormatted,
+                        strtoupper($invoice->customer_address_country ?? ''),
+                        $statusLabel,
+                    ]);
+                }
+            });
 
             fclose($handle);
         }, $fileName, [
             'Content-Type' => 'text/csv; charset=utf-8',
         ]);
+    }
+
+    public function getFilteredTableQuery(): ?\Illuminate\Database\Eloquent\Builder
+    {
+        // Query base (misma que usa la tabla)
+        $query = Invoice::query()
+            ->where('status', '!=', 'draft')
+            ->orderByDesc('invoice_created_at')
+            ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC");
+
+        // Obtener filtros activos
+        $filters = $this->tableFilters;
+
+        // Aplicar filtro de Estado
+        if (isset($filters['status']['value']) && filled($filters['status']['value'])) {
+            $statusValue = $filters['status']['value'];
+            
+            if ($statusValue === 'overdue') {
+                $query->where('status', 'open')
+                    ->whereNotNull('invoice_due_date')
+                    ->where('invoice_due_date', '<', now());
+            } else {
+                $query->where('status', $statusValue);
+            }
+        }
+
+        // Aplicar filtro de Moneda
+        if (isset($filters['currency']['value']) && filled($filters['currency']['value'])) {
+            $query->where('currency', $filters['currency']['value']);
+        }
+
+        return $query;
     }
 }
 

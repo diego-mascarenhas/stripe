@@ -108,12 +108,12 @@ class InvoiceResource extends Resource
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Estado')
                     ->options([
-                        'paid' => 'Pagada',
+                        'draft' => 'Borrador',
                         'open' => 'Abierta',
+                        'overdue' => 'Vencida',
+                        'paid' => 'Pagada',
                         'void' => 'Anulada',
                         'uncollectible' => 'Incobrable',
-                        'draft' => 'Borrador',
-                        'overdue' => 'Vencida',
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         $value = $data['value'] ?? null;
