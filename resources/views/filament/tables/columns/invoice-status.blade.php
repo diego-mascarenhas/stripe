@@ -3,7 +3,16 @@
     $statusColor = $record->status_color;
 
     // Información básica desde los campos del modelo
-    $customerName = $record->customer_name ?? 'cliente';
+    // Intentar obtener el nombre individual desde raw_payload, sino usar customer_name
+    $individualName = null;
+    if (!empty($record->raw_payload)) {
+        $payload = $record->raw_payload;
+        $individualName = data_get($payload, 'customer.individual_name')
+            ?? data_get($payload, 'customer_details.name')
+            ?? data_get($payload, 'customer.name')
+            ?? null;
+    }
+    $customerName = $individualName ?? $record->customer_name ?? 'cliente';
     $companyName = $record->customer_description ?? $record->customer_name ?? 'tu empresa';
     $customerEmail = $record->customer_email;
     $invoiceUrl = $record->hosted_invoice_url ?? $record->invoice_pdf;
@@ -26,75 +35,70 @@
         $phone = $phoneRaw ? preg_replace('/\D+/', '', $phoneRaw) : null;
     }
 
-    // Mensaje para WhatsApp (más informal)
-    $whatsappMessage = "Hola {$customerName} 👋\n\n";
-    $whatsappMessage .= "Te escribimos de {$companyName} para recordarte que tienes una factura pendiente de pago por *{$amountFormatted}*.\n\n";
+    // Mensaje para WhatsApp
+    $whatsappMessage = "Buenos dias {$customerName},\n\n";
+    $whatsappMessage .= "Te escribimos para recordarte que tienes una factura pendiente de {$companyName} por {$amountFormatted}.\n\n";
     if ($invoiceUrl) {
-        $whatsappMessage .= "Puedes revisar y pagar tu factura aquí:\n{$invoiceUrl}\n\n";
+        $whatsappMessage .= "Puedes revisar y pagar tu factura aqui:\n{$invoiceUrl}\n\n";
     }
-    $whatsappMessage .= "Si ya realizaste el pago, por favor ignora este mensaje.\n\n";
-    $whatsappMessage .= "Cualquier consulta, estamos a tu disposición. ¡Gracias!";
+    $whatsappMessage .= "Si ya realizaste el pago, ignora este mensaje.\n\n";
+    $whatsappMessage .= "Un cordial saludo";
 
-    // Mensaje para Email (más formal)
-    $emailSubject = "Recordatorio de pago - Factura pendiente";
-    $emailMessage = "Estimado/a {$customerName},\n\n";
-    $emailMessage .= "Le escribimos de {$companyName} para recordarle que tiene una factura pendiente de pago.\n\n";
-    $emailMessage .= "Detalles de la factura:\n";
-    $emailMessage .= "- Importe: {$amountFormatted}\n";
+    // Mensaje para Email
+    $emailSubject = "Recordatorio de pago - Factura {$record->number}";
+    $emailMessage = "Buenos dias {$customerName},%0D%0A%0D%0A";
+    $emailMessage .= "Te escribimos para recordarte que tienes una factura pendiente de {$companyName}.%0D%0A%0D%0A";
+    $emailMessage .= "Importe: {$amountFormatted}%0D%0A";
     if ($record->number) {
-        $emailMessage .= "- Número: {$record->number}\n";
+        $emailMessage .= "Factura: {$record->number}%0D%0A";
     }
     if ($record->invoice_due_date) {
-        $emailMessage .= "- Vencimiento: {$record->invoice_due_date->format('d/m/Y')}\n";
+        $emailMessage .= "Vencimiento: {$record->invoice_due_date->format('d/m/Y')}%0D%0A";
     }
-    $emailMessage .= "\n";
+    $emailMessage .= "%0D%0A";
     if ($invoiceUrl) {
-        $emailMessage .= "Puede revisar y gestionar el pago de su factura en el siguiente enlace:\n{$invoiceUrl}\n\n";
+        $emailMessage .= "Puedes revisar y pagar tu factura en:%0D%0A{$invoiceUrl}%0D%0A%0D%0A";
     }
-    $emailMessage .= "Si ya ha realizado el pago, por favor ignore este mensaje.\n\n";
-    $emailMessage .= "Quedamos a su disposición para cualquier consulta.\n\n";
-    $emailMessage .= "Saludos cordiales,\n";
-    $emailMessage .= "Equipo de {$companyName}";
+    $emailMessage .= "Si ya realizaste el pago, ignora este mensaje.%0D%0A%0D%0A";
+    $emailMessage .= "Un cordial saludo";
 
     // Enlaces
     $whatsappLink = $phone ? 'https://wa.me/' . $phone . '?text=' . urlencode($whatsappMessage) : null;
     $emailLink = (filled($customerEmail) && filter_var($customerEmail, FILTER_VALIDATE_EMAIL))
-        ? 'mailto:' . urlencode($customerEmail) . '?subject=' . urlencode($emailSubject) . '&body=' . urlencode($emailMessage)
+        ? 'mailto:' . $customerEmail . '?subject=' . rawurlencode($emailSubject) . '&body=' . $emailMessage
         : null;
 @endphp
 
-<div class="flex items-center justify-center gap-2">
+<div class="flex items-center justify-center gap-3">
     <x-filament::badge color="{{ $statusColor }}">
         {{ $statusLabel }}
     </x-filament::badge>
 
-    <div class="flex items-center gap-1.5">
-        @if ($whatsappLink)
-            <a
-                href="{{ $whatsappLink }}"
-                target="_blank"
-                rel="noopener"
-                class="inline-flex items-center justify-center text-success-600 hover:text-success-700 transition"
-                title="Enviar recordatorio por WhatsApp"
-            >
-                <x-filament::icon
-                    icon="heroicon-o-chat-bubble-left-right"
-                    class="h-5 w-5"
-                />
-            </a>
-        @endif
+    @if ($whatsappLink)
+        <a
+            href="{{ $whatsappLink }}"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center justify-center text-success-600 hover:text-success-700 transition"
+            title="Enviar recordatorio por WhatsApp"
+        >
+            <x-filament::icon
+                icon="heroicon-o-chat-bubble-left-right"
+                class="h-5 w-5"
+            />
+        </a>
+    @endif
 
-        @if ($emailLink)
-            <a
-                href="{{ $emailLink }}"
-                class="inline-flex items-center justify-center text-primary-600 hover:text-primary-700 transition"
-                title="Enviar recordatorio por Email"
-            >
-                <x-filament::icon
-                    icon="heroicon-o-envelope"
-                    class="h-5 w-5"
-                />
-            </a>
-        @endif
-    </div>
+    @if ($emailLink)
+        <a
+            href="{{ $emailLink }}"
+            class="inline-flex items-center justify-center text-primary-600 hover:text-primary-700 transition"
+            title="Enviar recordatorio por Email"
+        >
+            <x-filament::icon
+                icon="heroicon-o-envelope"
+                class="h-5 w-5"
+            />
+        </a>
+    @endif
 </div>
