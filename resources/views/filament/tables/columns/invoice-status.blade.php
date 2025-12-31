@@ -73,7 +73,6 @@
         <x-filament::badge color="{{ $statusColor }}">
             {{ $statusLabel }}
         </x-filament::badge>
-        <span class="text-xs text-gray-500">Sin enlace</span>
     @endif
 </div>
 
