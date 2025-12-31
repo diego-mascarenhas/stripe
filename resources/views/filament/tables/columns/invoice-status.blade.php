@@ -69,36 +69,40 @@
         : null;
 @endphp
 
-<div class="flex items-center justify-center gap-3">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
     <x-filament::badge color="{{ $statusColor }}">
         {{ $statusLabel }}
     </x-filament::badge>
 
-    @if ($whatsappLink)
-        <a
-            href="{{ $whatsappLink }}"
-            target="_blank"
-            rel="noopener"
-            class="inline-flex items-center justify-center text-success-600 hover:text-success-700 transition"
-            title="Enviar recordatorio por WhatsApp"
-        >
-            <x-filament::icon
-                icon="heroicon-o-chat-bubble-left-right"
-                class="h-5 w-5"
-            />
-        </a>
-    @endif
+    @if ($whatsappLink || $emailLink)
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+            @if ($whatsappLink)
+                <a
+                    href="{{ $whatsappLink }}"
+                    target="_blank"
+                    rel="noopener"
+                    style="display: inline-flex; color: #16a34a;"
+                    title="Enviar recordatorio por WhatsApp"
+                >
+                    <x-filament::icon
+                        icon="heroicon-o-chat-bubble-left-right"
+                        class="h-5 w-5"
+                    />
+                </a>
+            @endif
 
-    @if ($emailLink)
-        <a
-            href="{{ $emailLink }}"
-            class="inline-flex items-center justify-center text-primary-600 hover:text-primary-700 transition"
-            title="Enviar recordatorio por Email"
-        >
-            <x-filament::icon
-                icon="heroicon-o-envelope"
-                class="h-5 w-5"
-            />
-        </a>
+            @if ($emailLink)
+                <a
+                    href="{{ $emailLink }}"
+                    style="display: inline-flex; color: #2563eb;"
+                    title="Enviar recordatorio por Email"
+                >
+                    <x-filament::icon
+                        icon="heroicon-o-envelope"
+                        class="h-5 w-5"
+                    />
+                </a>
+            @endif
+        </div>
     @endif
 </div>
