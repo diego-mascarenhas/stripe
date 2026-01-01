@@ -118,10 +118,18 @@ class ListInvoices extends ListRecords
                         $discountRatio = $totalOriginal > 0 ? ($amountDue / $totalOriginal) : 1;
                     }
 
-                    // Aplicar ratio a subtotal y tax
-                    $subtotal = $baseSubtotal * $discountRatio;
-                    $tax = ($invoice->computed_tax_amount ?? $invoice->tax ?? $payloadTax ?? 0) * $discountRatio;
-                    $total = $amountDue;
+                    // Si la factura/nota de crédito quedó en cero, forzar todo a cero
+                    if (($amountDue ?? 0) == 0) {
+                        $subtotal = 0;
+                        $tax = 0;
+                        $total = 0;
+                        $discountRatio = 0;
+                    } else {
+                        // Aplicar ratio a subtotal y tax
+                        $subtotal = $baseSubtotal * $discountRatio;
+                        $tax = ($invoice->computed_tax_amount ?? $invoice->tax ?? $payloadTax ?? 0) * $discountRatio;
+                        $total = $amountDue;
+                    }
 
                     // Obtener tipo de cambio de la fecha de la factura según la moneda
                     $rateValue = null;
