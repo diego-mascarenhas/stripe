@@ -31,5 +31,29 @@ class StripeSubscriptionService
             yield $subscription;
         }
     }
+
+    /**
+     * Update subscription metadata in Stripe
+     */
+    public function updateMetadata(string $stripeId, array $metadata): \Stripe\Subscription
+    {
+        return $this->client->subscriptions->update($stripeId, [
+            'metadata' => $metadata,
+        ]);
+    }
+
+    /**
+     * Retrieve a subscription from Stripe
+     */
+    public function retrieve(string $stripeId): \Stripe\Subscription
+    {
+        return $this->client->subscriptions->retrieve($stripeId, [
+            'expand' => [
+                'customer',
+                'latest_invoice',
+                'items.data.price',
+            ],
+        ]);
+    }
 }
 

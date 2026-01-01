@@ -111,10 +111,24 @@ class Invoice extends Model
     }
 
     /**
+     * Check if the invoice is overdue (open and due date in the past)
+     */
+    public function getIsOverdueAttribute(): bool
+    {
+        return $this->status === 'open'
+            && $this->invoice_due_date
+            && $this->invoice_due_date->isPast();
+    }
+
+    /**
      * Get the status label in Spanish
      */
     public function getStatusLabelAttribute(): string
     {
+        if ($this->is_overdue) {
+            return 'Vencida';
+        }
+
         return match ($this->status) {
             'paid' => 'Pagada',
             'open' => 'Abierta',
@@ -130,6 +144,10 @@ class Invoice extends Model
      */
     public function getStatusColorAttribute(): string
     {
+        if ($this->is_overdue) {
+            return 'danger';
+        }
+
         return match ($this->status) {
             'paid' => 'success',
             'open' => 'warning',

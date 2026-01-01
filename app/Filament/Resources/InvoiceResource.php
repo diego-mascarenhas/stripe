@@ -10,6 +10,7 @@ use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class InvoiceResource extends Resource
@@ -96,23 +97,9 @@ class InvoiceResource extends Resource
                     ->toggleable()
                     ->extraCellAttributes(['class' => 'text-center'])
                     ->extraHeaderAttributes(['class' => 'text-center']),
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\ViewColumn::make('status')
                     ->label('Estado')
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'paid' => 'Pagada',
-                        'open' => 'Abierta',
-                        'void' => 'Anulada',
-                        'uncollectible' => 'Incobrable',
-                        'draft' => 'Borrador',
-                        default => ucfirst($state ?? '—'),
-                    })
-                    ->colors([
-                        'success' => 'paid',
-                        'info' => 'open',
-                        'gray' => 'void',
-                        'danger' => 'uncollectible',
-                        'warning' => 'draft',
-                    ])
+                    ->view('filament.tables.columns.invoice-status')
                     ->sortable()
                     ->extraCellAttributes(['class' => 'text-center'])
                     ->extraHeaderAttributes(['class' => 'text-center']),
@@ -121,12 +108,29 @@ class InvoiceResource extends Resource
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Estado')
                     ->options([
-                        'paid' => 'Pagada',
+                        'draft' => 'Borrador',
                         'open' => 'Abierta',
+                        'overdue' => 'Vencida',
+                        'paid' => 'Pagada',
                         'void' => 'Anulada',
                         'uncollectible' => 'Incobrable',
-                        'draft' => 'Borrador',
-                    ]),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        $value = $data['value'] ?? null;
+
+                        if (! $value) {
+                            return $query;
+                        }
+
+                        if ($value === 'overdue') {
+                            return $query
+                                ->where('status', 'open')
+                                ->whereNotNull('invoice_due_date')
+                                ->where('invoice_due_date', '<', now());
+                        }
+
+                        return $query->where('status', $value);
+                    }),
                 Tables\Filters\SelectFilter::make('currency')
                     ->label('Moneda')
                     ->options([

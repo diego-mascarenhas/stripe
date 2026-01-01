@@ -117,6 +117,15 @@ class SyncStripeSubscriptions
 
         $country = $this->resolveCountry($payload, $customerArray);
         $taxData = $this->resolveTaxData($payload);
+        $metadata = Arr::get($payload, 'metadata', []);
+
+        // Filter metadata to only include predefined fields
+        $filteredMetadata = array_filter([
+            'server' => Arr::get($metadata, 'server'),
+            'domain' => Arr::get($metadata, 'domain'),
+            'user' => Arr::get($metadata, 'user'),
+            'email' => Arr::get($metadata, 'email'),
+        ], fn ($value) => $value !== null && $value !== '');
 
         return [
             'stripe_id' => Arr::get($payload, 'id'),
@@ -155,6 +164,7 @@ class SyncStripeSubscriptions
             'canceled_at' => $this->normalizeTimestamp(Arr::get($payload, 'canceled_at')),
             'raw_payload' => $payload,
             'amount_for_note' => $amountForNote,
+            'data' => ! empty($filteredMetadata) ? $filteredMetadata : null,
         ];
     }
 

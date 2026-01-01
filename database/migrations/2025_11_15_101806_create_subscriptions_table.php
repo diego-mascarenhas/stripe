@@ -35,6 +35,7 @@ return new class extends Migration
             $table->timestamp('canceled_at')->nullable();
             $table->timestamp('last_synced_at')->nullable();
             $table->json('raw_payload')->nullable();
+            $table->json('data')->nullable();
             $table->timestamps();
         });
     }
