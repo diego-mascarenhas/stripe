@@ -81,22 +81,57 @@ class ListInvoices extends ListRecords
             $query->chunk(200, function ($chunk) use ($handle) {
                 foreach ($chunk as $invoice) {
                     $currency = strtoupper($invoice->currency ?? 'EUR');
+                    $invoiceDate = $invoice->invoice_created_at;
+
+                    // Valores originales SIN descuento (para cálculos EUR)
                     $subtotal = $invoice->subtotal ?? 0;
                     $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
+
+                    // Total original = subtotal + tax + discount_amount
+                    $discountAmount = $invoice->total_discount_amount ?? 0;
                     $total = $invoice->total ?? 0;
 
-                    // Usar amount_due que ya tiene descuentos aplicados
-                    $amountWithDiscount = $invoice->amount_due ?? $total;
+                    // Si hay descuento, el total original es total + discount
+                    if ($discountAmount > 0) {
+                        $totalOriginal = $total + $discountAmount;
+                    } else {
+                        $totalOriginal = $total;
+                    }
 
-                    $invoiceDate = $invoice->invoice_created_at;
+                    // Valor CON descuento (para columna Importe)
+                    $amountDue = $invoice->amount_due ?? $total;
 
                     // Obtener tipo de cambio de la fecha de la factura según la moneda
                     $rateValue = null;
                     $exchangeRateDisplay = '';
 
-                    if ($currency !== 'EUR' && $invoiceDate) {
-                        // El sistema guarda USD como base, necesitamos calcular MONEDA→EUR
-                        // usando USD→MONEDA y USD→EUR
+                    if ($currency === 'USD' && $invoiceDate) {
+                        // Para USD, buscar directamente USD→EUR
+                        $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', 'EUR')
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        // Si no encuentra en esa fecha o anterior, buscar la siguiente
+                        if (!$usdToEurRate) {
+                            $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
+                        if ($usdToEurRate) {
+                            $rateValue = (float) $usdToEurRate->rate;
+                            // Para USD→EUR, mostrar EUR→USD (invertido)
+                            $eurToUsd = 1 / $rateValue;
+                            $exchangeRateDisplay = number_format($eurToUsd, 4, ',', '.');
+                        } else {
+                            $exchangeRateDisplay = 'N/A';
+                        }
+                    } elseif ($currency !== 'EUR' && $invoiceDate) {
+                        // Para otras monedas, calcular usando USD como intermediario
 
                         $usdToTargetRate = ExchangeRate::where('base_currency', 'USD')
                             ->where('target_currency', $currency)
@@ -104,20 +139,35 @@ class ListInvoices extends ListRecords
                             ->orderByDesc('fetched_at')
                             ->first();
 
+                        // Si no encuentra, buscar la siguiente
+                        if (!$usdToTargetRate) {
+                            $usdToTargetRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', $currency)
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
                         $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
                             ->where('target_currency', 'EUR')
                             ->where('fetched_at', '<=', $invoiceDate)
                             ->orderByDesc('fetched_at')
                             ->first();
 
+                        // Si no encuentra, buscar la siguiente
+                        if (!$usdToEurRate) {
+                            $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
                         if ($usdToTargetRate && $usdToEurRate) {
-                            // Para convertir MONEDA→EUR:
-                            // 1 MONEDA = (1 / usdToTarget) USD
-                            // X USD = usdToEur EUR
-                            // Por lo tanto: 1 MONEDA = (usdToEur / usdToTarget) EUR
+                            // Calcular MONEDA→EUR
                             $rateValue = (float) $usdToEurRate->rate / (float) $usdToTargetRate->rate;
 
-                            // Para mostrar EUR→MONEDA (invertido)
+                            // Mostrar EUR→MONEDA (invertido)
                             $eurToMoneda = 1 / $rateValue;
                             $exchangeRateDisplay = number_format($eurToMoneda, 4, ',', '.');
                         } else {
@@ -125,7 +175,7 @@ class ListInvoices extends ListRecords
                         }
                     }
 
-                    // Calcular importes en EUR
+                    // Calcular importes en EUR usando valores ORIGINALES (sin descuento)
                     $subtotalEur = null;
                     $taxEur = null;
                     $totalEur = null;
@@ -133,12 +183,13 @@ class ListInvoices extends ListRecords
                     if ($currency === 'EUR') {
                         $subtotalEur = $subtotal;
                         $taxEur = $tax;
-                        $totalEur = $amountWithDiscount;
+                        $totalEur = $totalOriginal; // Usar total original SIN descuento
+                        $exchangeRateDisplay = ''; // No mostrar para EUR
                     } elseif ($rateValue) {
-                        // Convertir usando la tasa calculada MONEDA→EUR
+                        // Convertir valores ORIGINALES usando la tasa calculada
                         $subtotalEur = $subtotal * $rateValue;
                         $taxEur = $tax * $rateValue;
-                        $totalEur = $amountWithDiscount * $rateValue;
+                        $totalEur = $totalOriginal * $rateValue; // Usar total original SIN descuento
                     }
 
                     // Formatear montos en EUR
@@ -172,12 +223,12 @@ class ListInvoices extends ListRecords
                         $invoiceDate?->format('d/m/Y') ?? '',
                         $invoice->customer_name ?? '',
                         $taxId ?? '',
-                        number_format($subtotal, 2, ',', '.'),
+                        number_format($amountDue, 2, ',', '.'), // Importe con descuento
                         $currency,
                         $exchangeRateDisplay,
-                        $subtotalEurFormatted,
-                        $taxEurFormatted,
-                        $totalEurFormatted,
+                        $subtotalEurFormatted, // Subtotal SIN descuento en EUR
+                        $taxEurFormatted,      // Tax SIN descuento en EUR
+                        $totalEurFormatted,    // Total SIN descuento en EUR
                         strtoupper($invoice->customer_address_country ?? ''),
                         $statusLabel,
                         $invoiceLink,
