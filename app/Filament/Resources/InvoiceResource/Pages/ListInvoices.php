@@ -70,7 +70,7 @@ class ListInvoices extends ListRecords
                 'Total (EUR)',
                 'País',
                 'Estado',
-                'Link Factura',
+                'Link',
             ]);
 
             $conversionService = app(CurrencyConversionService::class);

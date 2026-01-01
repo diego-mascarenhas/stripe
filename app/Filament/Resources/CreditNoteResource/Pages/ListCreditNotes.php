@@ -5,7 +5,7 @@ namespace App\Filament\Resources\CreditNoteResource\Pages;
 use App\Actions\CreditNotes\SyncStripeCreditNotes;
 use App\Filament\Resources\CreditNoteResource;
 use App\Models\CreditNote;
-use App\Services\Currency\CurrencyConversionService;
+use App\Models\ExchangeRate;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -54,41 +54,163 @@ class ListCreditNotes extends ListRecords
         return response()->streamDownload(function () {
             $handle = fopen('php://output', 'w');
 
-            // CSV Headers
+            // CSV Headers (alineadas con facturas)
             fputcsv($handle, [
-                'Número',
+                'Comprobante',
                 'Fecha',
                 'Razón Social',
                 'ID Fiscal',
                 'Importe',
                 'Moneda',
-                'Tax',
+                'Cambio',
+                'Importe (EUR)',
+                'Tax (EUR)',
                 'Total (EUR)',
                 'País',
                 'Estado',
                 'Tipo',
                 'Razón',
                 'Memo',
+                'Link',
             ]);
-
-            $conversionService = app(CurrencyConversionService::class);
 
             CreditNote::where('voided', false)
                 ->orderByDesc('credit_note_created_at')
                 ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
-                ->chunk(200, function ($chunk) use ($handle, $conversionService) {
+                ->chunk(200, function ($chunk) use ($handle) {
                     foreach ($chunk as $creditNote) {
-                        $currency = strtoupper($creditNote->currency ?? 'USD');
-                        $subtotal = $creditNote->subtotal ?? 0;
-                        $tax = $creditNote->tax ?? 0;
-                        $total = $creditNote->total ?? 0;
+                        $currency = strtoupper($creditNote->currency ?? 'EUR');
+                        $date = $creditNote->credit_note_created_at;
 
-                        // Tax only shows for EUR
-                        $taxDisplay = $currency === 'EUR' ? number_format($tax, 2, ',', '.') : '';
+                        // Raw payload en centavos
+                        $payload = $creditNote->raw_payload ?? [];
+                        $rawSubtotal = data_get($payload, 'subtotal');
+                        $rawTotal = data_get($payload, 'total');
+                        $rawTax = data_get($payload, 'tax');
+                        $rawDiscountAmounts = data_get($payload, 'total_discount_amounts', []);
+                        $rawDiscount = is_array($rawDiscountAmounts)
+                            ? collect($rawDiscountAmounts)->sum(fn ($d) => data_get($d, 'amount', 0))
+                            : 0;
 
-                        // Convert total to EUR
-                        $totalEur = $conversionService->convert($total, $currency, 'EUR');
-                        $totalEurFormatted = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
+                        // Convertir a unidades
+                        $payloadSubtotal = $rawSubtotal !== null ? $rawSubtotal / 100 : null;
+                        $payloadTotal = $rawTotal !== null ? $rawTotal / 100 : null;
+                        $payloadTax = $rawTax !== null ? $rawTax / 100 : null;
+                        $payloadDiscount = $rawDiscount / 100;
+
+                        // Valores modelo
+                        $modelSubtotal = $creditNote->subtotal ?? 0;
+                        $modelTax = $creditNote->tax ?? 0;
+                        $modelTotal = $creditNote->total ?? 0;
+
+                        // Total realmente acreditado (con descuento)
+                        $amount = $creditNote->amount ?? $modelTotal ?? $payloadTotal ?? 0;
+
+                        // Base subtotal/total
+                        $baseSubtotal = $modelSubtotal ?: ($payloadSubtotal ?? 0);
+                        $baseTotal = $modelTotal ?: ($payloadTotal ?? 0);
+
+                        // Ratio de descuento
+                        if ($payloadSubtotal && $payloadTotal) {
+                            $discountRatio = $payloadSubtotal > 0 ? ($payloadTotal / $payloadSubtotal) : 1;
+                        } else {
+                            $totalOriginal = $baseTotal + ($creditNote->discount_amount ?? $payloadDiscount ?? 0);
+                            $discountRatio = $totalOriginal > 0 ? ($amount / $totalOriginal) : 1;
+                        }
+
+                        // Si es cero, forzar cero
+                        if (($amount ?? 0) == 0) {
+                            $subtotal = 0;
+                            $tax = 0;
+                            $total = 0;
+                            $discountRatio = 0;
+                        } else {
+                            $subtotal = $baseSubtotal * $discountRatio;
+                            $tax = ($modelTax ?: ($payloadTax ?? 0)) * $discountRatio;
+                            $total = $amount;
+                        }
+
+                        // Tipo de cambio (similar a facturas)
+                        $rateValue = null;
+                        $exchangeDisplay = '';
+
+                        if ($currency === 'USD' && $date) {
+                            $usdToEur = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '<=', $date)
+                                ->orderByDesc('fetched_at')
+                                ->first();
+
+                            if (! $usdToEur) {
+                                $usdToEur = ExchangeRate::where('base_currency', 'USD')
+                                    ->where('target_currency', 'EUR')
+                                    ->where('fetched_at', '>=', $date)
+                                    ->orderBy('fetched_at')
+                                    ->first();
+                            }
+
+                            if ($usdToEur) {
+                                $rateValue = (float) $usdToEur->rate;
+                                $exchangeDisplay = number_format(1 / $rateValue, 4, ',', '.'); // EUR→USD
+                            } else {
+                                $exchangeDisplay = 'N/A';
+                            }
+                        } elseif ($currency !== 'EUR' && $date) {
+                            $usdToTarget = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', $currency)
+                                ->where('fetched_at', '<=', $date)
+                                ->orderByDesc('fetched_at')
+                                ->first();
+
+                            if (! $usdToTarget) {
+                                $usdToTarget = ExchangeRate::where('base_currency', 'USD')
+                                    ->where('target_currency', $currency)
+                                    ->where('fetched_at', '>=', $date)
+                                    ->orderBy('fetched_at')
+                                    ->first();
+                            }
+
+                            $usdToEur = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '<=', $date)
+                                ->orderByDesc('fetched_at')
+                                ->first();
+
+                            if (! $usdToEur) {
+                                $usdToEur = ExchangeRate::where('base_currency', 'USD')
+                                    ->where('target_currency', 'EUR')
+                                    ->where('fetched_at', '>=', $date)
+                                    ->orderBy('fetched_at')
+                                    ->first();
+                            }
+
+                            if ($usdToTarget && $usdToEur) {
+                                $rateValue = (float) $usdToEur->rate / (float) $usdToTarget->rate; // MONEDA→EUR
+                                $exchangeDisplay = number_format(1 / $rateValue, 4, ',', '.'); // EUR→MONEDA
+                            } else {
+                                $exchangeDisplay = 'N/A';
+                            }
+                        }
+
+                        // Conversiones a EUR (con descuento)
+                        $subtotalEur = null;
+                        $taxEur = null;
+                        $totalEur = null;
+
+                        if ($currency === 'EUR') {
+                            $subtotalEur = $subtotal;
+                            $taxEur = $tax;
+                            $totalEur = $total;
+                            $exchangeDisplay = '';
+                        } elseif ($rateValue) {
+                            $subtotalEur = $subtotal * $rateValue;
+                            $taxEur = $tax * $rateValue;
+                            $totalEur = $total * $rateValue;
+                        }
+
+                        $subtotalEurFmt = $subtotalEur !== null ? number_format($subtotalEur, 2, ',', '.') : '';
+                        $taxEurFmt = $taxEur !== null ? number_format($taxEur, 2, ',', '.') : '';
+                        $totalEurFmt = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
 
                         // Status translation
                         $statusLabel = match ($creditNote->status) {
@@ -113,20 +235,26 @@ class ListCreditNotes extends ListRecords
                             default => ucfirst($creditNote->reason ?? '—'),
                         };
 
+                        // Link
+                        $link = $creditNote->pdf ?? $creditNote->hosted_credit_note_url ?? '';
+
                         fputcsv($handle, [
                             $creditNote->number ?? $creditNote->stripe_id,
                             $creditNote->credit_note_created_at?->format('d/m/Y') ?? '',
                             $creditNote->customer_name ?? '',
                             $creditNote->customer_tax_id ?? '',
-                            number_format($subtotal, 2, ',', '.'),
+                            number_format($total, 2, ',', '.'), // importe con descuento (total)
                             $currency,
-                            $taxDisplay,
-                            $totalEurFormatted,
+                            $exchangeDisplay,
+                            $subtotalEurFmt,
+                            $taxEurFmt,
+                            $totalEurFmt,
                             strtoupper($creditNote->customer_address_country ?? ''),
                             $statusLabel,
                             $typeLabel,
                             $reasonLabel,
                             $creditNote->memo ?? '',
+                            $link,
                         ]);
                     }
                 });
