@@ -83,23 +83,45 @@ class ListInvoices extends ListRecords
                     $currency = strtoupper($invoice->currency ?? 'EUR');
                     $invoiceDate = $invoice->invoice_created_at;
 
-                    // Valores originales SIN descuento (para cálculos EUR)
-                    $subtotal = $invoice->subtotal ?? 0;
-                    $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
+                    // Payload crudo para obtener subtotales y total con/sin descuento
+                    $payload = $invoice->raw_payload ?? [];
 
-                    // Total original = subtotal + tax + discount_amount
-                    $discountAmount = $invoice->total_discount_amount ?? 0;
-                    $total = $invoice->total ?? 0;
-
-                    // Si hay descuento, el total original es total + discount
-                    if ($discountAmount > 0) {
-                        $totalOriginal = $total + $discountAmount;
-                    } else {
-                        $totalOriginal = $total;
+                    // Valores reportados por Stripe (centavos)
+                    $rawSubtotal = data_get($payload, 'subtotal');
+                    $rawTotal = data_get($payload, 'total');
+                    $rawTax = data_get($payload, 'tax');
+                    $rawDiscountAmounts = data_get($payload, 'total_discount_amounts', []);
+                    $rawDiscount = 0;
+                    if (is_array($rawDiscountAmounts)) {
+                        $rawDiscount = collect($rawDiscountAmounts)->sum(fn ($d) => data_get($d, 'amount', 0));
                     }
 
-                    // Valor CON descuento (para columna Importe)
-                    $amountDue = $invoice->amount_due ?? $total;
+                    // Convertir a unidades monetarias
+                    $payloadSubtotal = $rawSubtotal !== null ? $rawSubtotal / 100 : null;
+                    $payloadTotal = $rawTotal !== null ? $rawTotal / 100 : null;
+                    $payloadTax = $rawTax !== null ? $rawTax / 100 : null;
+                    $payloadDiscount = $rawDiscount / 100;
+
+                    // Valor realmente cobrado
+                    $amountDue = $invoice->amount_due ?? $payloadTotal ?? $invoice->total ?? 0;
+
+                    // Subtotal/total base para calcular el ratio de descuento
+                    $baseSubtotal = $invoice->subtotal ?? $payloadSubtotal ?? 0;
+                    $baseTotal = $invoice->total ?? $payloadTotal ?? 0;
+
+                    // Si tenemos subtotal/total del payload, usar ratio preciso
+                    if ($payloadSubtotal && $payloadTotal) {
+                        $discountRatio = $payloadSubtotal > 0 ? ($payloadTotal / $payloadSubtotal) : 1;
+                    } else {
+                        // Fallback: usar descuentos registrados o amount_due
+                        $totalOriginal = $baseTotal + ($invoice->total_discount_amount ?? $payloadDiscount ?? 0);
+                        $discountRatio = $totalOriginal > 0 ? ($amountDue / $totalOriginal) : 1;
+                    }
+
+                    // Aplicar ratio a subtotal y tax
+                    $subtotal = $baseSubtotal * $discountRatio;
+                    $tax = ($invoice->computed_tax_amount ?? $invoice->tax ?? $payloadTax ?? 0) * $discountRatio;
+                    $total = $amountDue;
 
                     // Obtener tipo de cambio de la fecha de la factura según la moneda
                     $rateValue = null;
@@ -175,7 +197,7 @@ class ListInvoices extends ListRecords
                         }
                     }
 
-                    // Calcular importes en EUR usando valores ORIGINALES (sin descuento)
+                    // Calcular importes en EUR usando valores CON descuento
                     $subtotalEur = null;
                     $taxEur = null;
                     $totalEur = null;
@@ -183,13 +205,13 @@ class ListInvoices extends ListRecords
                     if ($currency === 'EUR') {
                         $subtotalEur = $subtotal;
                         $taxEur = $tax;
-                        $totalEur = $totalOriginal; // Usar total original SIN descuento
+                        $totalEur = $total; // Valor CON descuento
                         $exchangeRateDisplay = ''; // No mostrar para EUR
                     } elseif ($rateValue) {
-                        // Convertir valores ORIGINALES usando la tasa calculada
+                        // Convertir valores CON descuento usando la tasa calculada
                         $subtotalEur = $subtotal * $rateValue;
                         $taxEur = $tax * $rateValue;
-                        $totalEur = $totalOriginal * $rateValue; // Usar total original SIN descuento
+                        $totalEur = $total * $rateValue; // Valor CON descuento
                     }
 
                     // Formatear montos en EUR
@@ -223,12 +245,12 @@ class ListInvoices extends ListRecords
                         $invoiceDate?->format('d/m/Y') ?? '',
                         $invoice->customer_name ?? '',
                         $taxId ?? '',
-                        number_format($amountDue, 2, ',', '.'), // Importe con descuento
+                        number_format($total, 2, ',', '.'), // Importe con descuento
                         $currency,
                         $exchangeRateDisplay,
-                        $subtotalEurFormatted, // Subtotal SIN descuento en EUR
-                        $taxEurFormatted,      // Tax SIN descuento en EUR
-                        $totalEurFormatted,    // Total SIN descuento en EUR
+                        $subtotalEurFormatted, // Subtotal con descuento en EUR
+                        $taxEurFormatted,      // Tax con descuento en EUR
+                        $totalEurFormatted,    // Total con descuento en EUR
                         strtoupper($invoice->customer_address_country ?? ''),
                         $statusLabel,
                         $invoiceLink,
