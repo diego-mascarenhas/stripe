@@ -5,6 +5,7 @@ namespace App\Filament\Resources\InvoiceResource\Pages;
 use App\Actions\Invoices\SyncStripeInvoices;
 use App\Filament\Resources\InvoiceResource;
 use App\Models\Invoice;
+use App\Models\ExchangeRate;
 use App\Services\Currency\CurrencyConversionService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -63,10 +64,13 @@ class ListInvoices extends ListRecords
                 'ID Fiscal',
                 'Importe',
                 'Moneda',
-                'Tax',
+                'Cambio',
+                'Importe (EUR)',
+                'Tax (EUR)',
                 'Total (EUR)',
                 'País',
                 'Estado',
+                'Link Factura',
             ]);
 
             $conversionService = app(CurrencyConversionService::class);
@@ -74,18 +78,72 @@ class ListInvoices extends ListRecords
             // Obtener query con filtros aplicados
             $query = $this->getFilteredTableQuery();
 
-            $query->chunk(200, function ($chunk) use ($handle, $conversionService) {
+            $query->chunk(200, function ($chunk) use ($handle) {
                 foreach ($chunk as $invoice) {
-                    $currency = strtoupper($invoice->currency ?? 'USD');
+                    $currency = strtoupper($invoice->currency ?? 'EUR');
                     $subtotal = $invoice->subtotal ?? 0;
                     $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
                     $total = $invoice->total ?? 0;
 
-                    // Tax only shows for EUR invoices
-                    $taxDisplay = $currency === 'EUR' ? number_format($tax, 2, ',', '.') : '';
+                    // Usar amount_due que ya tiene descuentos aplicados
+                    $amountWithDiscount = $invoice->amount_due ?? $total;
 
-                    // Convert total to EUR
-                    $totalEur = $conversionService->convert($total, $currency, 'EUR');
+                    $invoiceDate = $invoice->invoice_created_at;
+
+                    // Obtener tipo de cambio de la fecha de la factura según la moneda
+                    $rateValue = null;
+                    $exchangeRateDisplay = '';
+
+                    if ($currency !== 'EUR' && $invoiceDate) {
+                        // El sistema guarda USD como base, necesitamos calcular MONEDA→EUR
+                        // usando USD→MONEDA y USD→EUR
+
+                        $usdToTargetRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', $currency)
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', 'EUR')
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        if ($usdToTargetRate && $usdToEurRate) {
+                            // Para convertir MONEDA→EUR:
+                            // 1 MONEDA = (1 / usdToTarget) USD
+                            // X USD = usdToEur EUR
+                            // Por lo tanto: 1 MONEDA = (usdToEur / usdToTarget) EUR
+                            $rateValue = (float) $usdToEurRate->rate / (float) $usdToTargetRate->rate;
+
+                            // Para mostrar EUR→MONEDA (invertido)
+                            $eurToMoneda = 1 / $rateValue;
+                            $exchangeRateDisplay = number_format($eurToMoneda, 4, ',', '.');
+                        } else {
+                            $exchangeRateDisplay = 'N/A';
+                        }
+                    }
+
+                    // Calcular importes en EUR
+                    $subtotalEur = null;
+                    $taxEur = null;
+                    $totalEur = null;
+
+                    if ($currency === 'EUR') {
+                        $subtotalEur = $subtotal;
+                        $taxEur = $tax;
+                        $totalEur = $amountWithDiscount;
+                    } elseif ($rateValue) {
+                        // Convertir usando la tasa calculada MONEDA→EUR
+                        $subtotalEur = $subtotal * $rateValue;
+                        $taxEur = $tax * $rateValue;
+                        $totalEur = $amountWithDiscount * $rateValue;
+                    }
+
+                    // Formatear montos en EUR
+                    $subtotalEurFormatted = $subtotalEur !== null ? number_format($subtotalEur, 2, ',', '.') : '';
+                    $taxEurFormatted = $taxEur !== null ? number_format($taxEur, 2, ',', '.') : '';
                     $totalEurFormatted = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
 
                     // Extract clean tax ID (number only)
@@ -106,17 +164,23 @@ class ListInvoices extends ListRecords
                         default => ucfirst($invoice->status ?? '—'),
                     };
 
+                    // Link de descarga de la factura
+                    $invoiceLink = $invoice->invoice_pdf ?? $invoice->hosted_invoice_url ?? '';
+
                     fputcsv($handle, [
                         $invoice->number ?? $invoice->stripe_id,
-                        $invoice->invoice_created_at?->format('d/m/Y') ?? '',
+                        $invoiceDate?->format('d/m/Y') ?? '',
                         $invoice->customer_name ?? '',
                         $taxId ?? '',
                         number_format($subtotal, 2, ',', '.'),
                         $currency,
-                        $taxDisplay,
+                        $exchangeRateDisplay,
+                        $subtotalEurFormatted,
+                        $taxEurFormatted,
                         $totalEurFormatted,
                         strtoupper($invoice->customer_address_country ?? ''),
                         $statusLabel,
+                        $invoiceLink,
                     ]);
                 }
             });
@@ -141,7 +205,7 @@ class ListInvoices extends ListRecords
         // Aplicar filtro de Estado
         if (isset($filters['status']['value']) && filled($filters['status']['value'])) {
             $statusValue = $filters['status']['value'];
-            
+
             if ($statusValue === 'overdue') {
                 $query->where('status', 'open')
                     ->whereNotNull('invoice_due_date')
