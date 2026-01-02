@@ -188,23 +188,20 @@ class CreditNoteResource extends Resource
             return '—';
         }
 
+        $currency = strtoupper($record->currency ?? 'USD');
         $conversionService = app(CurrencyConversionService::class);
-        $originalCurrency = $record->currency;
+        $converted = $conversionService->convert($amount, $currency, 'EUR');
+        $eurValue = $converted ?? ($currency === 'EUR' ? $amount : null);
 
-        $formattedEur = number_format($conversionService->convert($amount, $originalCurrency, 'EUR') ?? $amount, 2, ',', '.').' €';
+        $main = number_format($eurValue ?? $amount, 2, ',', '.').' €';
 
-        if (strtoupper($originalCurrency) !== 'EUR') {
-            $formattedOriginal = number_format($amount, 2, ',', '.').' '.strtoupper($originalCurrency);
-
-            return <<<HTML
-                <div class="flex flex-col items-end">
-                    <span>{$formattedEur}</span>
-                    <span class="text-xs text-gray-500">{$formattedOriginal}</span>
-                </div>
-            HTML;
+        if ($currency === 'EUR' || $eurValue === null) {
+            return "<div class=\"text-end\"><span class=\"block\">{$main}</span></div>";
         }
 
-        return $formattedEur;
+        $original = number_format($amount, 2, ',', '.').' '.$currency;
+
+        return "<div class=\"text-end\"><span class=\"block\">{$main}</span><br><span class=\"text-xs text-gray-500\">{$original}</span></div>";
     }
 }
 
