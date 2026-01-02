@@ -192,6 +192,45 @@ class ListCreditNotes extends ListRecords
                             }
                         }
 
+                        // ID Fiscal y País (fallback al payload)
+                        // ID Fiscal (misma lógica que facturas)
+                        $taxId = $creditNote->customer_tax_id;
+                        if (! $taxId) {
+                            // credit_note.customer_tax_ids
+                            $taxIds = data_get($payload, 'customer_tax_ids', []);
+                            if (is_array($taxIds) && ! empty($taxIds)) {
+                                $first = collect($taxIds)->first(fn ($item) => data_get($item, 'value'));
+                                $value = data_get($first, 'value');
+                                $type = data_get($first, 'type');
+                                if ($value) {
+                                    $taxId = $type ? "{$value} ({$type})" : $value;
+                                }
+                            }
+                        }
+                        if (! $taxId) {
+                            $taxIds = data_get($payload, 'customer_details.tax_ids', []);
+                            if (is_array($taxIds) && ! empty($taxIds)) {
+                                $first = collect($taxIds)->first(fn ($item) => data_get($item, 'value'));
+                                $value = data_get($first, 'value');
+                                $type = data_get($first, 'type');
+                                if ($value) {
+                                    $taxId = $type ? "{$value} ({$type})" : $value;
+                                }
+                            }
+                        }
+
+                        // País (misma lógica que facturas)
+                        $country = $creditNote->customer_address_country;
+                        if ($country) {
+                            $country = strtoupper($country);
+                        } else {
+                            $country = strtoupper(
+                                data_get($payload, 'customer_details.address.country')
+                                ?? data_get($payload, 'customer.address.country')
+                                ?? ''
+                            );
+                        }
+
                         // Conversiones a EUR (con descuento)
                         $subtotalEur = null;
                         $taxEur = null;
@@ -242,14 +281,14 @@ class ListCreditNotes extends ListRecords
                             $creditNote->number ?? $creditNote->stripe_id,
                             $creditNote->credit_note_created_at?->format('d/m/Y') ?? '',
                             $creditNote->customer_name ?? '',
-                            $creditNote->customer_tax_id ?? '',
+                            $taxId ?? '',
                             number_format($total, 2, ',', '.'), // importe con descuento (total)
                             $currency,
                             $exchangeDisplay,
                             $subtotalEurFmt,
                             $taxEurFmt,
                             $totalEurFmt,
-                            strtoupper($creditNote->customer_address_country ?? ''),
+                            $country,
                             $statusLabel,
                             $typeLabel,
                             $reasonLabel,

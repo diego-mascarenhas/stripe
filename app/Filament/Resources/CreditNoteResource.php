@@ -38,14 +38,14 @@ class CreditNoteResource extends Resource
             )
             ->columns([
                 Tables\Columns\TextColumn::make('number')
-                    ->label('Número')
+                    ->label('Comprobante')
                     ->description(fn (CreditNote $record): ?string => $record->credit_note_created_at?->format('d/m/Y'))
                     ->searchable()
                     ->sortable(false)
                     ->default(fn (CreditNote $record): string => $record->stripe_id)
-                    ->url(fn (CreditNote $record): ?string => 
-                        $record->hosted_credit_note_url 
-                        ?? ($record->stripe_id ? "https://dashboard.stripe.com/credit_notes/{$record->stripe_id}" : null), 
+                    ->url(fn (CreditNote $record): ?string =>
+                        $record->hosted_credit_note_url
+                        ?? ($record->stripe_id ? "https://dashboard.stripe.com/credit_notes/{$record->stripe_id}" : null),
                         shouldOpenInNewTab: true)
                     ->color('primary'),
                 Tables\Columns\TextColumn::make('customer_description')
@@ -139,6 +139,47 @@ class CreditNoteResource extends Resource
         return [
             'index' => Pages\ListCreditNotes::route('/'),
         ];
+    }
+
+    private static function resolveTaxId(CreditNote $record): ?string
+    {
+        if ($record->customer_tax_id) {
+            return $record->customer_tax_id;
+        }
+
+        $payload = $record->raw_payload ?? [];
+
+        $extract = function (array $taxIds): ?string {
+            if (! is_array($taxIds) || empty($taxIds)) {
+                return null;
+            }
+            $first = collect($taxIds)->first(fn ($item) => data_get($item, 'value'));
+            $value = data_get($first, 'value');
+            $type = data_get($first, 'type');
+            return $value ? ($type ? "{$value} ({$type})" : $value) : null;
+        };
+
+        $taxId = $extract(data_get($payload, 'customer_tax_ids', []));
+
+        if (! $taxId) {
+            $taxId = $extract(data_get($payload, 'customer_details.tax_ids', []));
+        }
+
+        return $taxId;
+    }
+
+    private static function resolveCountry(CreditNote $record): ?string
+    {
+        if ($record->customer_address_country) {
+            return strtoupper($record->customer_address_country);
+        }
+
+        $payload = $record->raw_payload ?? [];
+
+        $country = data_get($payload, 'customer_details.address.country')
+            ?? data_get($payload, 'customer.address.country');
+
+        return $country ? strtoupper($country) : null;
     }
 
     private static function formatMoneyWithOriginal(?float $amount, CreditNote $record): string
