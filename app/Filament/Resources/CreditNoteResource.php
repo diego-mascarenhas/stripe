@@ -38,14 +38,14 @@ class CreditNoteResource extends Resource
             )
             ->columns([
                 Tables\Columns\TextColumn::make('number')
-                    ->label('Número')
+                    ->label('Comprobante')
                     ->description(fn (CreditNote $record): ?string => $record->credit_note_created_at?->format('d/m/Y'))
                     ->searchable()
                     ->sortable(false)
                     ->default(fn (CreditNote $record): string => $record->stripe_id)
-                    ->url(fn (CreditNote $record): ?string => 
-                        $record->hosted_credit_note_url 
-                        ?? ($record->stripe_id ? "https://dashboard.stripe.com/credit_notes/{$record->stripe_id}" : null), 
+                    ->url(fn (CreditNote $record): ?string =>
+                        $record->hosted_credit_note_url
+                        ?? ($record->stripe_id ? "https://dashboard.stripe.com/credit_notes/{$record->stripe_id}" : null),
                         shouldOpenInNewTab: true)
                     ->color('primary'),
                 Tables\Columns\TextColumn::make('customer_description')
@@ -141,29 +141,67 @@ class CreditNoteResource extends Resource
         ];
     }
 
+    private static function resolveTaxId(CreditNote $record): ?string
+    {
+        if ($record->customer_tax_id) {
+            return $record->customer_tax_id;
+        }
+
+        $payload = $record->raw_payload ?? [];
+
+        $extract = function (array $taxIds): ?string {
+            if (! is_array($taxIds) || empty($taxIds)) {
+                return null;
+            }
+            $first = collect($taxIds)->first(fn ($item) => data_get($item, 'value'));
+            $value = data_get($first, 'value');
+            $type = data_get($first, 'type');
+            return $value ? ($type ? "{$value} ({$type})" : $value) : null;
+        };
+
+        $taxId = $extract(data_get($payload, 'customer_tax_ids', []));
+
+        if (! $taxId) {
+            $taxId = $extract(data_get($payload, 'customer_details.tax_ids', []));
+        }
+
+        return $taxId;
+    }
+
+    private static function resolveCountry(CreditNote $record): ?string
+    {
+        if ($record->customer_address_country) {
+            return strtoupper($record->customer_address_country);
+        }
+
+        $payload = $record->raw_payload ?? [];
+
+        $country = data_get($payload, 'customer_details.address.country')
+            ?? data_get($payload, 'customer.address.country');
+
+        return $country ? strtoupper($country) : null;
+    }
+
     private static function formatMoneyWithOriginal(?float $amount, CreditNote $record): string
     {
         if ($amount === null) {
             return '—';
         }
 
+        $currency = strtoupper($record->currency ?? 'USD');
         $conversionService = app(CurrencyConversionService::class);
-        $originalCurrency = $record->currency;
+        $converted = $conversionService->convert($amount, $currency, 'EUR');
+        $eurValue = $converted ?? ($currency === 'EUR' ? $amount : null);
 
-        $formattedEur = number_format($conversionService->convert($amount, $originalCurrency, 'EUR') ?? $amount, 2, ',', '.').' €';
+        $main = number_format($eurValue ?? $amount, 2, ',', '.').' €';
 
-        if (strtoupper($originalCurrency) !== 'EUR') {
-            $formattedOriginal = number_format($amount, 2, ',', '.').' '.strtoupper($originalCurrency);
-
-            return <<<HTML
-                <div class="flex flex-col items-end">
-                    <span>{$formattedEur}</span>
-                    <span class="text-xs text-gray-500">{$formattedOriginal}</span>
-                </div>
-            HTML;
+        if ($currency === 'EUR' || $eurValue === null) {
+            return "<div class=\"text-end\"><span class=\"block\">{$main}</span></div>";
         }
 
-        return $formattedEur;
+        $original = number_format($amount, 2, ',', '.').' '.$currency;
+
+        return "<div class=\"text-end\"><span class=\"block\">{$main}</span><br><span class=\"text-xs text-gray-500\">{$original}</span></div>";
     }
 }
 

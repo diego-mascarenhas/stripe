@@ -5,6 +5,7 @@ namespace App\Filament\Resources\InvoiceResource\Pages;
 use App\Actions\Invoices\SyncStripeInvoices;
 use App\Filament\Resources\InvoiceResource;
 use App\Models\Invoice;
+use App\Models\ExchangeRate;
 use App\Services\Currency\CurrencyConversionService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -63,10 +64,13 @@ class ListInvoices extends ListRecords
                 'ID Fiscal',
                 'Importe',
                 'Moneda',
-                'Tax',
+                'Cambio',
+                'Importe (EUR)',
+                'Tax (EUR)',
                 'Total (EUR)',
                 'País',
                 'Estado',
+                'Link',
             ]);
 
             $conversionService = app(CurrencyConversionService::class);
@@ -74,18 +78,153 @@ class ListInvoices extends ListRecords
             // Obtener query con filtros aplicados
             $query = $this->getFilteredTableQuery();
 
-            $query->chunk(200, function ($chunk) use ($handle, $conversionService) {
+            $query->chunk(200, function ($chunk) use ($handle) {
                 foreach ($chunk as $invoice) {
-                    $currency = strtoupper($invoice->currency ?? 'USD');
-                    $subtotal = $invoice->subtotal ?? 0;
-                    $tax = $invoice->computed_tax_amount ?? $invoice->tax ?? 0;
-                    $total = $invoice->total ?? 0;
+                    $currency = strtoupper($invoice->currency ?? 'EUR');
+                    $invoiceDate = $invoice->invoice_created_at;
 
-                    // Tax only shows for EUR invoices
-                    $taxDisplay = $currency === 'EUR' ? number_format($tax, 2, ',', '.') : '';
+                    // Payload crudo para obtener subtotales y total con/sin descuento
+                    $payload = $invoice->raw_payload ?? [];
 
-                    // Convert total to EUR
-                    $totalEur = $conversionService->convert($total, $currency, 'EUR');
+                    // Valores reportados por Stripe (centavos)
+                    $rawSubtotal = data_get($payload, 'subtotal');
+                    $rawTotal = data_get($payload, 'total');
+                    $rawTax = data_get($payload, 'tax');
+                    $rawDiscountAmounts = data_get($payload, 'total_discount_amounts', []);
+                    $rawDiscount = 0;
+                    if (is_array($rawDiscountAmounts)) {
+                        $rawDiscount = collect($rawDiscountAmounts)->sum(fn ($d) => data_get($d, 'amount', 0));
+                    }
+
+                    // Convertir a unidades monetarias
+                    $payloadSubtotal = $rawSubtotal !== null ? $rawSubtotal / 100 : null;
+                    $payloadTotal = $rawTotal !== null ? $rawTotal / 100 : null;
+                    $payloadTax = $rawTax !== null ? $rawTax / 100 : null;
+                    $payloadDiscount = $rawDiscount / 100;
+
+                    // Valor realmente cobrado
+                    $amountDue = $invoice->amount_due ?? $payloadTotal ?? $invoice->total ?? 0;
+
+                    // Subtotal/total base para calcular el ratio de descuento
+                    $baseSubtotal = $invoice->subtotal ?? $payloadSubtotal ?? 0;
+                    $baseTotal = $invoice->total ?? $payloadTotal ?? 0;
+
+                    // Si tenemos subtotal/total del payload, usar ratio preciso
+                    if ($payloadSubtotal && $payloadTotal) {
+                        $discountRatio = $payloadSubtotal > 0 ? ($payloadTotal / $payloadSubtotal) : 1;
+                    } else {
+                        // Fallback: usar descuentos registrados o amount_due
+                        $totalOriginal = $baseTotal + ($invoice->total_discount_amount ?? $payloadDiscount ?? 0);
+                        $discountRatio = $totalOriginal > 0 ? ($amountDue / $totalOriginal) : 1;
+                    }
+
+                    // Si la factura/nota de crédito quedó en cero, forzar todo a cero
+                    if (($amountDue ?? 0) == 0) {
+                        $subtotal = 0;
+                        $tax = 0;
+                        $total = 0;
+                        $discountRatio = 0;
+                    } else {
+                        // Aplicar ratio a subtotal y tax
+                        $subtotal = $baseSubtotal * $discountRatio;
+                        $tax = ($invoice->computed_tax_amount ?? $invoice->tax ?? $payloadTax ?? 0) * $discountRatio;
+                        $total = $amountDue;
+                    }
+
+                    // Obtener tipo de cambio de la fecha de la factura según la moneda
+                    $rateValue = null;
+                    $exchangeRateDisplay = '';
+
+                    if ($currency === 'USD' && $invoiceDate) {
+                        // Para USD, buscar directamente USD→EUR
+                        $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', 'EUR')
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        // Si no encuentra en esa fecha o anterior, buscar la siguiente
+                        if (!$usdToEurRate) {
+                            $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
+                        if ($usdToEurRate) {
+                            $rateValue = (float) $usdToEurRate->rate;
+                            // Para USD→EUR, mostrar EUR→USD (invertido)
+                            $eurToUsd = 1 / $rateValue;
+                            $exchangeRateDisplay = number_format($eurToUsd, 4, ',', '.');
+                        } else {
+                            $exchangeRateDisplay = 'N/A';
+                        }
+                    } elseif ($currency !== 'EUR' && $invoiceDate) {
+                        // Para otras monedas, calcular usando USD como intermediario
+
+                        $usdToTargetRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', $currency)
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        // Si no encuentra, buscar la siguiente
+                        if (!$usdToTargetRate) {
+                            $usdToTargetRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', $currency)
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
+                        $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                            ->where('target_currency', 'EUR')
+                            ->where('fetched_at', '<=', $invoiceDate)
+                            ->orderByDesc('fetched_at')
+                            ->first();
+
+                        // Si no encuentra, buscar la siguiente
+                        if (!$usdToEurRate) {
+                            $usdToEurRate = ExchangeRate::where('base_currency', 'USD')
+                                ->where('target_currency', 'EUR')
+                                ->where('fetched_at', '>=', $invoiceDate)
+                                ->orderBy('fetched_at')
+                                ->first();
+                        }
+
+                        if ($usdToTargetRate && $usdToEurRate) {
+                            // Calcular MONEDA→EUR
+                            $rateValue = (float) $usdToEurRate->rate / (float) $usdToTargetRate->rate;
+
+                            // Mostrar EUR→MONEDA (invertido)
+                            $eurToMoneda = 1 / $rateValue;
+                            $exchangeRateDisplay = number_format($eurToMoneda, 4, ',', '.');
+                        } else {
+                            $exchangeRateDisplay = 'N/A';
+                        }
+                    }
+
+                    // Calcular importes en EUR usando valores CON descuento
+                    $subtotalEur = null;
+                    $taxEur = null;
+                    $totalEur = null;
+
+                    if ($currency === 'EUR') {
+                        $subtotalEur = $subtotal;
+                        $taxEur = $tax;
+                        $totalEur = $total; // Valor CON descuento
+                        $exchangeRateDisplay = ''; // No mostrar para EUR
+                    } elseif ($rateValue) {
+                        // Convertir valores CON descuento usando la tasa calculada
+                        $subtotalEur = $subtotal * $rateValue;
+                        $taxEur = $tax * $rateValue;
+                        $totalEur = $total * $rateValue; // Valor CON descuento
+                    }
+
+                    // Formatear montos en EUR
+                    $subtotalEurFormatted = $subtotalEur !== null ? number_format($subtotalEur, 2, ',', '.') : '';
+                    $taxEurFormatted = $taxEur !== null ? number_format($taxEur, 2, ',', '.') : '';
                     $totalEurFormatted = $totalEur !== null ? number_format($totalEur, 2, ',', '.') : '';
 
                     // Extract clean tax ID (number only)
@@ -106,17 +245,23 @@ class ListInvoices extends ListRecords
                         default => ucfirst($invoice->status ?? '—'),
                     };
 
+                    // Link de descarga de la factura
+                    $invoiceLink = $invoice->invoice_pdf ?? $invoice->hosted_invoice_url ?? '';
+
                     fputcsv($handle, [
                         $invoice->number ?? $invoice->stripe_id,
-                        $invoice->invoice_created_at?->format('d/m/Y') ?? '',
+                        $invoiceDate?->format('d/m/Y') ?? '',
                         $invoice->customer_name ?? '',
                         $taxId ?? '',
-                        number_format($subtotal, 2, ',', '.'),
+                        number_format($total, 2, ',', '.'), // Importe con descuento
                         $currency,
-                        $taxDisplay,
-                        $totalEurFormatted,
+                        $exchangeRateDisplay,
+                        $subtotalEurFormatted, // Subtotal con descuento en EUR
+                        $taxEurFormatted,      // Tax con descuento en EUR
+                        $totalEurFormatted,    // Total con descuento en EUR
                         strtoupper($invoice->customer_address_country ?? ''),
                         $statusLabel,
+                        $invoiceLink,
                     ]);
                 }
             });
@@ -141,7 +286,7 @@ class ListInvoices extends ListRecords
         // Aplicar filtro de Estado
         if (isset($filters['status']['value']) && filled($filters['status']['value'])) {
             $statusValue = $filters['status']['value'];
-            
+
             if ($statusValue === 'overdue') {
                 $query->where('status', 'open')
                     ->whereNotNull('invoice_due_date')
