@@ -33,9 +33,8 @@ class SendSubscriptionNotifications extends Command
     {
         $this->info('📅 Programando advertencias...');
 
-        // Suscripciones activas con auto_suspend
+        // TODAS las suscripciones activas (sin importar auto_suspend)
         $subscriptions = Subscription::where('status', 'active')
-            ->whereNotNull('data->auto_suspend')
             ->whereNotNull('current_period_end')
             ->get();
 

@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\Log;
 
 class WHMServerManager
 {
-    private string $username;
-    private string $password;
+    private ?string $username;
+    private ?string $password;
     private int $port;
     private bool $verifySSL;
     private int $timeout;
