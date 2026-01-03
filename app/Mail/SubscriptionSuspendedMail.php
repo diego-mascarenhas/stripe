@@ -10,7 +10,7 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class SubscriptionSuspendedMail extends Mailable implements ShouldQueue
+class SubscriptionSuspendedMail extends Mailable
 {
     use Queueable, SerializesModels;
 

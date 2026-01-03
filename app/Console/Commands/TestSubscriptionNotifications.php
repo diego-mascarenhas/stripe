@@ -23,12 +23,25 @@ class TestSubscriptionNotifications extends Command
             'database.connections.mysql.database' => 'stripe',
             'database.connections.mysql.password' => 'Passw0rd!',
         ]);
-        
+
+        // FORZAR configuración de mail para testing
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.transport' => 'smtp',
+            'mail.mailers.smtp.host' => '127.0.0.1',
+            'mail.mailers.smtp.port' => 1025,
+            'mail.mailers.smtp.encryption' => null,
+            'mail.mailers.smtp.username' => null,
+            'mail.mailers.smtp.password' => null,
+        ]);
+
         $this->info('🧪 Iniciando prueba de notificaciones...');
         $this->newLine();
 
         // Primero verificar conexión
         $this->line("🔍 Base de datos: " . config('database.connections.mysql.database'));
+        $this->line("📧 Mail driver: " . config('mail.default'));
+        $this->line("📧 SMTP host: " . config('mail.mailers.smtp.host') . ':' . config('mail.mailers.smtp.port'));
         $this->newLine();
 
         $subscriptionId = $this->option('subscription');
@@ -45,7 +58,7 @@ class TestSubscriptionNotifications extends Command
             // Obtener TODAS las suscripciones (sin filtrar por auto_suspend para testing)
             $all = Subscription::all();
             $this->info("📊 Total suscripciones en DB: {$all->count()}");
-            
+
             if ($all->isEmpty()) {
                 $this->error("❌ No hay suscripciones en la base de datos.");
                 $this->newLine();
@@ -54,13 +67,13 @@ class TestSubscriptionNotifications extends Command
                 $this->line("  DB_DATABASE=stripe");
                 return self::FAILURE;
             }
-            
+
             // Mostrar resumen
             $withAutoSuspend = $all->filter(fn($s) => data_get($s->data, 'auto_suspend') === true)->count();
             $this->line("  ✓ Con auto_suspend: {$withAutoSuspend}");
             $this->line("  ✓ Sin auto_suspend: " . ($all->count() - $withAutoSuspend));
             $this->newLine();
-            
+
             $subscriptions = $all;
         }
 
@@ -117,7 +130,7 @@ class TestSubscriptionNotifications extends Command
         }
 
         $this->info('✅ Prueba completada. Revisa MailPit en http://localhost:8025');
-        
+
         return self::SUCCESS;
     }
 
@@ -161,9 +174,16 @@ class TestSubscriptionNotifications extends Command
                 return;
             }
 
-            // Enviar email
-            Mail::to($subscription->customer_email)
-                ->send($mailable);
+            $this->line("  🔄 Enviando email...");
+
+            // Enviar email con logging explícito
+            try {
+                Mail::to($subscription->customer_email)->send($mailable);
+                $this->line("  📧 Mail::send() ejecutado");
+            } catch (\Throwable $mailException) {
+                $this->error("  ❌ Error en Mail::send(): " . $mailException->getMessage());
+                throw $mailException;
+            }
 
             $notification->markAsSent();
 
@@ -179,6 +199,7 @@ class TestSubscriptionNotifications extends Command
 
         } catch (\Throwable $e) {
             $this->error("  ✗ Error al enviar {$type}: {$e->getMessage()}");
+            $this->error("  📍 Trace: " . $e->getFile() . ':' . $e->getLine());
             if (isset($notification)) {
                 $notification->markAsFailed($e->getMessage());
             }
