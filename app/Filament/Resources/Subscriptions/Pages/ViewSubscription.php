@@ -69,23 +69,34 @@ class ViewSubscription extends ViewRecord
                 ->map(fn ($taxId) => $taxId->toArray())
                 ->all();
 
-            $this->stripeInvoices = $this->record
-                ->invoices()
-                ->limit(50)
-                ->get()
+            // Try to load invoices from Stripe API as fallback
+            try {
+                $stripeInvoicesList = $stripe->invoices->all([
+                    'subscription' => $this->record->stripe_id,
+                    'limit' => 50,
+                ]);
+
+                $this->stripeInvoices = collect($stripeInvoicesList->data)
                 ->map(function ($invoice) {
                     return [
-                        'id' => $invoice->stripe_id,
-                        'number' => $invoice->number ?? $invoice->stripe_id,
-                        'amount' => $invoice->total ?? 0,
+                            'id' => $invoice->id,
+                            'number' => $invoice->number ?? $invoice->id,
+                            'amount' => ($invoice->total ?? 0) / 100,
                         'currency' => strtoupper($invoice->currency ?? 'USD'),
                         'status' => $invoice->status,
-                        'created_at' => $invoice->invoice_created_at ?? $invoice->created_at,
+                            'created_at' => $invoice->created ? \Carbon\Carbon::createFromTimestamp($invoice->created) : null,
                         'hosted_invoice_url' => $invoice->hosted_invoice_url,
                         'invoice_pdf' => $invoice->invoice_pdf,
                     ];
                 })
                 ->all();
+            } catch (\Throwable $invoiceException) {
+                \Log::warning('Could not load invoices from Stripe API', [
+                    'subscription_stripe_id' => $this->record->stripe_id,
+                    'error' => $invoiceException->getMessage(),
+                ]);
+                $this->stripeInvoices = [];
+            }
         } catch (\Throwable $exception) {
             report($exception);
             $this->stripeInvoices = [];
@@ -157,14 +168,16 @@ class ViewSubscription extends ViewRecord
     {
         return $schema
             ->schema([
-                Section::make($this->record->customer_name ?? 'Cliente')
-                    ->description('Creado ' . ($this->record->created_at?->translatedFormat('d M Y') ?? '—'))
+                Grid::make(2)
+                    ->columnSpan('full')
                     ->schema([
-                        Grid::make(2)
+                        Section::make($this->record->customer_name ?? 'Cliente')
+                            ->description('Creado ' . ($this->record->created_at?->translatedFormat('d M Y') ?? '—'))
                             ->schema([
                                 TextEntry::make('status')
                                     ->label('Estado')
                                     ->badge()
+                                    ->columnSpan(1)
                                     ->color(fn (string $state): string => match ($state) {
                                         'active' => 'success',
                                         'past_due' => 'warning',
@@ -184,7 +197,8 @@ class ViewSubscription extends ViewRecord
                                         default => Str::ucfirst($state),
                                     }),
                                 TextEntry::make('customer_email')
-                                    ->label('Email'),
+                                    ->label('Email')
+                                    ->columnSpan(1),
                                 TextEntry::make('customer_phone')
                                     ->label('Teléfono')
                                     ->state(fn () => data_get($this->stripeCustomer, 'phone') ?? '—'),
@@ -201,47 +215,41 @@ class ViewSubscription extends ViewRecord
                                 TextEntry::make('customer_id')
                                     ->label('ID Stripe cus_')
                                     ->fontFamily('mono'),
-                            ]),
-                    ]),
-                Section::make('Servicios')
-                    ->description(fn () => count($this->getSubscriptionItems()) . ' activos')
-                    ->schema([
-                        RepeatableEntry::make('subscription_items')
-                            ->label('')
-                            ->state(fn () => $this->getSubscriptionItems())
-                            ->schema([
-                                Group::make([
-                                    TextEntry::make('name')
-                                        ->label('')
-                                        ->weight('medium')
-                                        ->formatStateUsing(fn ($state, $record): HtmlString => new HtmlString(
-                                            '<div class="space-y-1">' .
-                                            '<div class="font-medium">' . e($state ?? 'Servicio') . '</div>' .
-                                            '<div class="text-sm text-gray-500 dark:text-gray-400">' .
-                                            e($record['quantity'] ?? 1) . ' × ' .
-                                            e($record['unit_amount'] ? number_format($record['unit_amount'], 2, ',', '.') : '—') . ' ' .
-                                            e($record['currency']) .
-                                            '</div>' .
-                                            '</div>'
-                                        )),
-                                ])
-                                    ->columnSpan(2),
-                                TextEntry::make('interval')
-                                    ->label('')
-                                    ->formatStateUsing(function ($state, $record): string {
-                                        if ($state) {
-                                            return 'Cada ' . ($record['interval_count'] ?? 1) . ' ' . $state;
-                                        }
-                                        return '—';
-                                    }),
                             ])
-                            ->columns(3)
-                            ->contained(false),
-                    ])
-                    ->visible(fn () => ! empty($this->getSubscriptionItems())),
-                Section::make('Importe')
-                    ->schema([
-                        Grid::make(3)
+                            ->columns(2),
+                        Section::make('Servicios')
+                            ->description(fn () => count($this->getSubscriptionItems()) . ' activos')
+                            ->schema([
+                                RepeatableEntry::make('subscription_items')
+                                    ->label('')
+                                    ->state(fn () => $this->getSubscriptionItems())
+                                    ->schema([
+                                        TextEntry::make('name')
+                                            ->label('Servicio')
+                                            ->weight('medium'),
+                                        TextEntry::make('quantity')
+                                            ->label('Cantidad')
+                                            ->default(1),
+                                        TextEntry::make('unit_amount')
+                                            ->label('Precio Unit.')
+                                            ->formatStateUsing(fn ($state, $record): string =>
+                                                $state ? number_format($state, 2, ',', '.') . ' ' . ($record['currency'] ?? 'ARS') : '—'
+                                            ),
+                                        TextEntry::make('interval')
+                                            ->label('Frecuencia')
+                                            ->formatStateUsing(function ($state, $record): string {
+                                                if ($state) {
+                                                    $count = $record['interval_count'] ?? 1;
+                                                    return $count > 1 ? "Cada $count $state" : ucfirst($state);
+                                                }
+                                                return '—';
+                                            }),
+                                    ])
+                                    ->columns(4)
+                                    ->contained(false),
+                            ])
+                            ->visible(fn () => ! empty($this->getSubscriptionItems())),
+                        Section::make('Importe')
                             ->schema([
                                 TextEntry::make('amount_total')
                                     ->label('Importe')
@@ -262,31 +270,68 @@ class ViewSubscription extends ViewRecord
                                 TextEntry::make('current_period_end')
                                     ->label('Próxima renovación')
                                     ->date('d/m/Y'),
+                            ])
+                            ->columns(1),
+                        Section::make('Métodos de Pago')
+                            ->schema([
+                                Group::make([
+                                    TextEntry::make('payment_method')
+                                        ->label('')
+                                        ->state(function () {
+                                            if (! $this->stripePaymentMethod) {
+                                                return 'No hay métodos de pago registrados.';
+                                            }
+
+                                            $brand = strtoupper(data_get($this->stripePaymentMethod, 'card.brand', 'Método'));
+                                            $last4 = data_get($this->stripePaymentMethod, 'card.last4');
+                                            $expMonth = data_get($this->stripePaymentMethod, 'card.exp_month');
+                                            $expYear = data_get($this->stripePaymentMethod, 'card.exp_year');
+
+                                            return "$brand **** **** **** $last4\nExpira $expMonth/$expYear";
+                                        }),
+                                ]),
                             ]),
                     ]),
-                Section::make('Métodos de Pago')
+                Section::make('Metadatos')
+                    ->columnSpan('full')
                     ->schema([
+                        RepeatableEntry::make('metadata')
+                            ->label('')
+                            ->state(function () {
+                                $metadata = data_get($this->stripeCustomer, 'metadata', []);
+                                if (empty($metadata)) {
+                                    return [];
+                                }
+                                return collect($metadata)
+                                    ->map(fn ($value, $key) => [
+                                        'key' => $key,
+                                        'value' => $value,
+                                    ])
+                                    ->values()
+                                    ->all();
+                            })
+                            ->schema([
+                                TextEntry::make('key')
+                                    ->label('Clave')
+                                    ->weight('medium'),
+                                TextEntry::make('value')
+                                    ->label('Valor'),
+                            ])
+                            ->columns(2)
+                            ->contained(false)
+                            ->visible(fn () => ! empty(data_get($this->stripeCustomer, 'metadata', []))),
                         Group::make([
-                            TextEntry::make('payment_method')
+                            TextEntry::make('no_metadata')
                                 ->label('')
-                                ->state(function () {
-                                    if (! $this->stripePaymentMethod) {
-                                        return 'No hay métodos de pago registrados.';
-                                    }
-
-                                    $brand = strtoupper(data_get($this->stripePaymentMethod, 'card.brand', 'Método'));
-                                    $last4 = data_get($this->stripePaymentMethod, 'card.last4');
-                                    $expMonth = data_get($this->stripePaymentMethod, 'card.exp_month');
-                                    $expYear = data_get($this->stripePaymentMethod, 'card.exp_year');
-
-                                    return "$brand **** **** **** $last4\nExpira $expMonth/$expYear";
-                                }),
+                                ->state('No hay metadatos registrados.')
+                                ->visible(fn () => empty(data_get($this->stripeCustomer, 'metadata', []))),
                         ]),
                     ]),
                 Section::make('Facturas')
-                    ->description(fn () => count($this->stripeInvoices) > 0 
+                    ->description(fn () => count($this->stripeInvoices) > 0
                         ? 'Últimas ' . count($this->stripeInvoices) . ' facturas emitidas'
                         : 'No hay facturas registradas')
+                    ->columnSpan('full')
                     ->schema([
                         RepeatableEntry::make('invoices')
                             ->label('')
@@ -294,13 +339,15 @@ class ViewSubscription extends ViewRecord
                             ->schema([
                                 TextEntry::make('number')
                                     ->label('Número')
-                                    ->state(fn ($record) => $record['number'] ?? $record['id']),
+                                    ->default(fn ($record) => $record['id'] ?? '—'),
                                 TextEntry::make('created_at')
                                     ->label('Fecha')
                                     ->date('d/m/Y'),
                                 TextEntry::make('amount')
                                     ->label('Monto')
-                                    ->formatStateUsing(fn ($state, $record): string => number_format($state, 2, ',', '.') . ' ' . $record['currency']),
+                                    ->formatStateUsing(fn ($state, $record): string =>
+                                        number_format($state, 2, ',', '.') . ' ' . ($record['currency'] ?? 'ARS')
+                                    ),
                                 TextEntry::make('status')
                                     ->label('Estado')
                                     ->badge()
