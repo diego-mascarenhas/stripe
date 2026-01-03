@@ -356,6 +356,34 @@ class ViewSubscription extends ViewRecord
                 Section::make('Metadatos')
                     ->columnSpan('full')
                     ->headerActions([
+                        Action::make('edit_metadata')
+                            ->label('Editar Metadata')
+                            ->icon('heroicon-o-pencil-square')
+                            ->color('gray')
+                            ->visible(fn () => $this->record->type === 'sell')
+                            ->form(fn () => \App\Support\Subscriptions\SubscriptionMetadataManager::schema())
+                            ->fillForm(fn (): array => \App\Support\Subscriptions\SubscriptionMetadataManager::fillForm($this->record))
+                            ->action(function (array $data): void {
+                                try {
+                                    app(\App\Actions\Subscriptions\UpdateStripeSubscriptionMetadata::class)
+                                        ->handle($this->record, $data);
+
+                                    Notification::make()
+                                        ->title('Metadata actualizada')
+                                        ->body('La metadata de la suscripción se actualizó correctamente en Stripe.')
+                                        ->success()
+                                        ->send();
+
+                                    // Refrescar la página para mostrar los nuevos datos
+                                    redirect()->to(SubscriptionResource::getUrl('view', ['record' => $this->record]));
+                                } catch (\Throwable $exception) {
+                                    Notification::make()
+                                        ->title('Error al actualizar')
+                                        ->body('No se pudo actualizar la metadata: '.$exception->getMessage())
+                                        ->danger()
+                                        ->send();
+                                }
+                            }),
                         Action::make('suspend')
                             ->label('Suspender cuenta WHM')
                             ->icon('heroicon-o-x-circle')
