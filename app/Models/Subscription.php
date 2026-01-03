@@ -73,6 +73,11 @@ class Subscription extends Model
             ->orderByDesc('invoice_created_at');
     }
 
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(SubscriptionNotification::class)->latest();
+    }
+
     public function getBillingFrequencyAttribute(): ?string
     {
         if (! $this->plan_interval) {
