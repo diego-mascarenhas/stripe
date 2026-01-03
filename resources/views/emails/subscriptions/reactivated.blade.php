@@ -76,7 +76,7 @@
 
 		<!-- CTA Section -->
 		<div style="text-align: center; margin: 35px 0">
-			<p style="font-size: 16px; color: #333; margin-bottom: 20px">Accedé a tu panel de control</p>
+			<p style="font-size: 16px; color: #333; margin-bottom: 20px; text-align: center;">Accedé a tu panel de control</p>
 			<a
 				href="https://revisionalpha.com/login"
 				style="
@@ -95,7 +95,7 @@
 			>
 				🚀 Ir a mi cuenta
 			</a>
-			<p style="font-size: 12px; color: #888; margin-top: 10px">
+			<p style="font-size: 12px; color: #888; margin-top: 10px; text-align: center;">
 				Acceso seguro a todos tus servicios
 			</p>
 		</div>

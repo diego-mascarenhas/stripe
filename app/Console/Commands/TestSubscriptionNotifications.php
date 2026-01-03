@@ -154,23 +154,11 @@ class TestSubscriptionNotifications extends Command
     private function sendTestNotification(Subscription $subscription, string $type, ?int $days): void
     {
         try {
-            // Crear registro de notificación (TEST)
-            $notification = SubscriptionNotification::create([
-                'subscription_id' => $subscription->id,
-                'notification_type' => $type,
-                'status' => 'pending',
-                'scheduled_at' => now(),
-                'recipient_email' => $subscription->customer_email,
-                'recipient_name' => $subscription->customer_name,
-                'metadata' => ['test' => true],
-            ]);
-
             // Obtener el mailable
             $mailable = $this->getMailable($subscription, $type, $days);
 
             if (!$mailable) {
                 $this->error("  ❌ Tipo de notificación no válido: {$type}");
-                $notification->markAsFailed('Tipo de notificación no válido');
                 return;
             }
 
@@ -185,7 +173,41 @@ class TestSubscriptionNotifications extends Command
                 throw $mailException;
             }
 
-            $notification->markAsSent();
+            // Renderizar el email para obtener el body DESPUÉS de enviarlo
+            try {
+                $body = $mailable->render();
+
+                // Crear registro de notificación
+                $notification = SubscriptionNotification::create([
+                    'subscription_id' => $subscription->id,
+                    'notification_type' => $type,
+                    'status' => 'sent',
+                    'scheduled_at' => now(),
+                    'sent_at' => now(),
+                    'recipient_email' => $subscription->customer_email,
+                    'recipient_name' => $subscription->customer_name,
+                    'body' => $body,
+                    'metadata' => ['test' => true],
+                ]);
+
+                // Agregar tracking pixel al body
+                $trackingPixel = '<img src="' . route('notification.track.pixel', ['notification' => $notification->id]) . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px" alt="" />';
+                $bodyWithTracking = str_replace('</body>', $trackingPixel . '</body>', $body);
+                $notification->update(['body' => $bodyWithTracking]);
+            } catch (\Throwable $e) {
+                $this->warn("  ⚠️  No se pudo guardar el body: " . $e->getMessage());
+                // Crear registro básico sin body
+                SubscriptionNotification::create([
+                    'subscription_id' => $subscription->id,
+                    'notification_type' => $type,
+                    'status' => 'sent',
+                    'scheduled_at' => now(),
+                    'sent_at' => now(),
+                    'recipient_email' => $subscription->customer_email,
+                    'recipient_name' => $subscription->customer_name,
+                    'metadata' => ['test' => true],
+                ]);
+            }
 
             $typeLabel = match($type) {
                 'warning_5_days' => '⚠️  Aviso 5 días',
@@ -198,11 +220,8 @@ class TestSubscriptionNotifications extends Command
             $this->line("  ✓ {$typeLabel} enviado a {$subscription->customer_email}");
 
         } catch (\Throwable $e) {
-            $this->error("  ✗ Error al enviar {$type}: {$e->getMessage()}");
+            $this->error("  ✗ Error al enviar {$type}: " . $e->getMessage());
             $this->error("  📍 Trace: " . $e->getFile() . ':' . $e->getLine());
-            if (isset($notification)) {
-                $notification->markAsFailed($e->getMessage());
-            }
         }
     }
 

@@ -18,6 +18,9 @@ class SubscriptionNotification extends Model
         'sent_at',
         'recipient_email',
         'recipient_name',
+        'body',
+        'opened_at',
+        'open_count',
         'error_message',
         'metadata',
     ];
@@ -25,6 +28,8 @@ class SubscriptionNotification extends Model
     protected $casts = [
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
+        'opened_at' => 'datetime',
+        'open_count' => 'integer',
         'metadata' => 'array',
     ];
 

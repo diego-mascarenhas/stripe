@@ -70,9 +70,9 @@
 
 		<!-- CTA Section -->
 		<div style="text-align: center; margin: 35px 0">
-			<p style="font-size: 16px; color: #333; margin-bottom: 20px">Reactivá tu servicio ahora</p>
+			<p style="font-size: 16px; color: #333; margin-bottom: 20px; text-align: center;">Reactivá tu servicio ahora</p>
 			<a
-				href="https://revisionalpha.com/login"
+				href="{{ $paymentUrl }}"
 				style="
 					background: linear-gradient(135deg, #ff1a1d 0%, #e6171a 100%);
 					color: white;
@@ -87,10 +87,10 @@
 					letter-spacing: 0.5px;
 				"
 			>
-				🔐 Actualizar método de pago
+				💳 Pagar Factura
 			</a>
-			<p style="font-size: 12px; color: #888; margin-top: 10px">
-				Acceso seguro a tu área de clientes
+			<p style="font-size: 12px; color: #888; margin-top: 10px; text-align: center;">
+				Pago seguro procesado por Stripe
 			</p>
 		</div>
 

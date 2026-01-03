@@ -63,10 +63,30 @@ class SubscriptionNotificationsTable
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->placeholder('—'),
+                TextColumn::make('opened_at')
+                    ->label('Abierto')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable()
+                    ->placeholder('—'),
+                TextColumn::make('open_count')
+                    ->label('Aperturas')
+                    ->badge()
+                    ->color(fn (int $state): string => match (true) {
+                        $state === 0 => 'gray',
+                        $state === 1 => 'success',
+                        $state > 1 => 'warning',
+                        default => 'gray',
+                    })
+                    ->sortable(),
                 TextColumn::make('error_message')
                     ->label('Error')
                     ->limit(50)
                     ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('body')
+                    ->label('Contenido')
+                    ->limit(100)
+                    ->html()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
