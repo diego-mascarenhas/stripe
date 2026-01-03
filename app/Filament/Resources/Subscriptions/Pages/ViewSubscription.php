@@ -355,37 +355,147 @@ class ViewSubscription extends ViewRecord
                     ]))),
                 Section::make('Metadatos')
                     ->columnSpan('full')
-                    ->schema([
-                        RepeatableEntry::make('metadata')
-                            ->label('')
-                            ->state(function () {
-                                $metadata = data_get($this->stripeCustomer, 'metadata', []);
-                                if (empty($metadata)) {
-                                    return [];
+                    ->headerActions([
+                        Action::make('suspend')
+                            ->label('Suspender cuenta WHM')
+                            ->icon('heroicon-o-x-circle')
+                            ->color('danger')
+                            ->visible(fn () =>
+                                ! empty(data_get($this->record->data, 'server')) &&
+                                ! empty(data_get($this->record->data, 'user'))
+                            )
+                            ->requiresConfirmation()
+                            ->modalHeading('Suspender cuenta en WHM')
+                            ->modalDescription(fn () => new HtmlString(
+                                "¿Estás seguro de suspender la cuenta <strong>" .
+                                data_get($this->record->data, 'user') .
+                                "</strong> en el servidor <strong>" .
+                                data_get($this->record->data, 'server') .
+                                "</strong>?"
+                            ))
+                            ->action(function () {
+                                try {
+                                    $server = data_get($this->record->data, 'server');
+                                    $user = data_get($this->record->data, 'user');
+
+                                    app(\App\Services\WHM\WHMServerManager::class)
+                                        ->suspendAccount($server, $user, 'Suspendido manualmente desde el panel');
+
+                                    Notification::make()
+                                        ->title('Cuenta suspendida')
+                                        ->body("La cuenta {$user} fue suspendida exitosamente en WHM.")
+                                        ->success()
+                                        ->send();
+                                } catch (\Throwable $e) {
+                                    Notification::make()
+                                        ->title('Error al suspender')
+                                        ->body("No se pudo suspender la cuenta: {$e->getMessage()}")
+                                        ->danger()
+                                        ->send();
                                 }
-                                return collect($metadata)
-                                    ->map(fn ($value, $key) => [
-                                        'key' => $key,
-                                        'value' => $value,
-                                    ])
-                                    ->values()
-                                    ->all();
-                            })
+                            }),
+                        Action::make('unsuspend')
+                            ->label('Reactivar cuenta WHM')
+                            ->icon('heroicon-o-check-circle')
+                            ->color('success')
+                            ->visible(fn () =>
+                                ! empty(data_get($this->record->data, 'server')) &&
+                                ! empty(data_get($this->record->data, 'user'))
+                            )
+                            ->requiresConfirmation()
+                            ->modalHeading('Reactivar cuenta en WHM')
+                            ->modalDescription(fn () => new HtmlString(
+                                "¿Estás seguro de reactivar la cuenta <strong>" .
+                                data_get($this->record->data, 'user') .
+                                "</strong> en el servidor <strong>" .
+                                data_get($this->record->data, 'server') .
+                                "</strong>?"
+                            ))
+                            ->action(function () {
+                                try {
+                                    $server = data_get($this->record->data, 'server');
+                                    $user = data_get($this->record->data, 'user');
+
+                                    app(\App\Services\WHM\WHMServerManager::class)
+                                        ->unsuspendAccount($server, $user);
+
+                                    Notification::make()
+                                        ->title('Cuenta reactivada')
+                                        ->body("La cuenta {$user} fue reactivada exitosamente en WHM.")
+                                        ->success()
+                                        ->send();
+                                } catch (\Throwable $e) {
+                                    Notification::make()
+                                        ->title('Error al reactivar')
+                                        ->body("No se pudo reactivar la cuenta: {$e->getMessage()}")
+                                        ->danger()
+                                        ->send();
+                                }
+                            }),
+                    ])
+                    ->schema([
+                        Grid::make(2)
                             ->schema([
-                                TextEntry::make('key')
-                                    ->label('Clave')
-                                    ->weight('medium'),
-                                TextEntry::make('value')
-                                    ->label('Valor'),
+                                TextEntry::make('data.type')
+                                    ->label('Tipo de servicio')
+                                    ->badge()
+                                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                                        'hosting' => 'Hosting',
+                                        'web_cloud' => 'Web Cloud',
+                                        'vps' => 'VPS',
+                                        'domain' => 'Domain',
+                                        'backups' => 'Backups',
+                                        'mailer' => 'Mailer',
+                                        'whatsapp' => 'WhatsApp',
+                                        default => ucfirst($state ?? '—'),
+                                    })
+                                    ->color(fn (?string $state): string => match ($state) {
+                                        'hosting' => 'info',
+                                        'web_cloud' => 'success',
+                                        'vps' => 'warning',
+                                        'domain' => 'primary',
+                                        'backups' => 'gray',
+                                        'mailer' => 'danger',
+                                        'whatsapp' => 'success',
+                                        default => 'gray',
+                                    })
+                                    ->visible(fn () => filled(data_get($this->record->data, 'type'))),
+                                TextEntry::make('data.plan')
+                                    ->label('Plan')
+                                    ->badge()
+                                    ->formatStateUsing(fn (?string $state): string => ucfirst($state ?? '—'))
+                                    ->color('primary')
+                                    ->visible(fn () => filled(data_get($this->record->data, 'plan'))),
+                                TextEntry::make('data.server')
+                                    ->label('Servidor')
+                                    ->icon('heroicon-o-server')
+                                    ->visible(fn () => filled(data_get($this->record->data, 'server'))),
+                                TextEntry::make('data.domain')
+                                    ->label('Dominio')
+                                    ->icon('heroicon-o-globe-alt')
+                                    ->visible(fn () => filled(data_get($this->record->data, 'domain'))),
+                                TextEntry::make('data.user')
+                                    ->label('Usuario cPanel')
+                                    ->icon('heroicon-o-user')
+                                    ->copyable()
+                                    ->visible(fn () => filled(data_get($this->record->data, 'user'))),
+                                TextEntry::make('data.email')
+                                    ->label('Email del servicio')
+                                    ->icon('heroicon-o-envelope')
+                                    ->visible(fn () => filled(data_get($this->record->data, 'email'))),
+                                TextEntry::make('data.auto_suspend')
+                                    ->label('Auto-suspensión')
+                                    ->badge()
+                                    ->formatStateUsing(fn ($state): string => $state ? 'Activada' : 'Desactivada')
+                                    ->color(fn ($state): string => $state ? 'success' : 'gray')
+                                    ->visible(fn () => isset($this->record->data['auto_suspend'])),
                             ])
-                            ->columns(2)
-                            ->contained(false)
-                            ->visible(fn () => ! empty(data_get($this->stripeCustomer, 'metadata', []))),
+                            ->visible(fn () => ! empty($this->record->data)),
                         Group::make([
                             TextEntry::make('no_metadata')
                                 ->label('')
                                 ->state('No hay metadatos registrados.')
-                                ->visible(fn () => empty(data_get($this->stripeCustomer, 'metadata', []))),
+                                ->visible(fn () => empty($this->record->data)),
                         ]),
                     ]),
                 Section::make('Facturas')
