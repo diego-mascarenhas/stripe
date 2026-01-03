@@ -60,7 +60,7 @@
 										<td>
 											<h1 style="text-align: left; margin: 0; padding: 0">
 												<img
-													src="{{ asset('assets/revision-alpha-new-logo-color.svg') }}"
+													src="https://revisionalpha.com/assets/revision-alpha-new-logo-color.svg"
 													alt="revision alpha"
 													width="300"
 													style="display: block; position: relative; margin: 0; padding: 0"
@@ -134,7 +134,7 @@
 																text-decoration: none;
 															"
 															><img
-																src="{{ asset('assets/revision-alpha-new-logo-blanco-y-rojo.svg') }}"
+																src="https://revisionalpha.com/assets/revision-alpha-new-logo-blanco-y-rojo.svg"
 																alt="revision alpha"
 																style="display: block; position: relative; width: 150px"
 															/>
