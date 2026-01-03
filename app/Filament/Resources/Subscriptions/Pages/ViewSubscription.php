@@ -140,6 +140,7 @@ class ViewSubscription extends ViewRecord
                         'amount_total' => $record->amount_total ?? 0,
                         'current_period_end' => $record->current_period_end ?? now()->addMonth(),
                         'notes' => $record->invoice_note,
+                        'status' => $record->status ?? 'active',
                     ];
                 })
                 ->action(function (array $data): void {
@@ -227,6 +228,30 @@ class ViewSubscription extends ViewRecord
                                         TextEntry::make('name')
                                             ->label('Servicio')
                                             ->weight('medium'),
+                                        TextEntry::make('type')
+                                            ->label('Tipo')
+                                            ->badge()
+                                            ->color(fn (?string $state): string => match ($state) {
+                                                'hosting' => 'success',
+                                                'web_cloud' => 'info',
+                                                'vps' => 'warning',
+                                                'domain' => 'primary',
+                                                'backups' => 'gray',
+                                                'mailer' => 'danger',
+                                                'whatsapp' => 'success',
+                                                default => 'gray',
+                                            })
+                                            ->formatStateUsing(fn (?string $state): string => match ($state) {
+                                                'hosting' => 'Hosting',
+                                                'web_cloud' => 'Web Cloud',
+                                                'vps' => 'VPS',
+                                                'domain' => 'Domain',
+                                                'backups' => 'Backups',
+                                                'mailer' => 'Mailer',
+                                                'whatsapp' => 'WhatsApp',
+                                                null => '—',
+                                                default => ucfirst(str_replace('_', ' ', $state)),
+                                            }),
                                         TextEntry::make('quantity')
                                             ->label('Cantidad')
                                             ->default(1),
@@ -245,7 +270,7 @@ class ViewSubscription extends ViewRecord
                                                 return '—';
                                             }),
                                     ])
-                                    ->columns(4)
+                                    ->columns(5)
                                     ->contained(false),
                             ])
                             ->visible(fn () => ! empty($this->getSubscriptionItems())),
@@ -292,6 +317,42 @@ class ViewSubscription extends ViewRecord
                                 ]),
                             ]),
                     ]),
+                Section::make('Detalles del Servicio')
+                    ->columnSpan('full')
+                    ->schema([
+                        TextEntry::make('plan')
+                            ->label('Plan')
+                            ->badge()
+                            ->color('info')
+                            ->formatStateUsing(fn (?string $state): string => $state ? ucfirst(str_replace('_', ' ', $state)) : '—')
+                            ->state(fn () => data_get($this->record->data, 'plan')),
+                        TextEntry::make('server')
+                            ->label('Servidor')
+                            ->state(fn () => data_get($this->record->data, 'server') ?? '—'),
+                        TextEntry::make('domain')
+                            ->label('Dominio')
+                            ->state(fn () => data_get($this->record->data, 'domain') ?? '—'),
+                        TextEntry::make('user')
+                            ->label('Usuario')
+                            ->state(fn () => data_get($this->record->data, 'user') ?? '—'),
+                        TextEntry::make('service_email')
+                            ->label('Email del servicio')
+                            ->state(fn () => data_get($this->record->data, 'email') ?? '—'),
+                        TextEntry::make('auto_suspend')
+                            ->label('Auto-suspensión')
+                            ->badge()
+                            ->color(fn (?bool $state): string => $state ? 'warning' : 'success')
+                            ->formatStateUsing(fn (?bool $state): string => $state ? 'Activada' : 'Desactivada')
+                            ->state(fn () => data_get($this->record->data, 'auto_suspend', false)),
+                    ])
+                    ->columns(3)
+                    ->visible(fn () => $this->record->type === 'buy' && !empty(array_filter([
+                        data_get($this->record->data, 'plan'),
+                        data_get($this->record->data, 'server'),
+                        data_get($this->record->data, 'domain'),
+                        data_get($this->record->data, 'user'),
+                        data_get($this->record->data, 'email'),
+                    ]))),
                 Section::make('Metadatos')
                     ->columnSpan('full')
                     ->schema([
@@ -392,8 +453,17 @@ class ViewSubscription extends ViewRecord
     {
         $items = Arr::get($this->record?->raw_payload ?? [], 'items.data', []);
 
+        // If this is a manual purchase (type 'buy'), get type from data field
+        $serviceType = null;
+        if ($this->record?->type === 'buy') {
+            $serviceType = data_get($this->record->data, 'type');
+        } else {
+            // For Stripe subscriptions, try to get from customer metadata
+            $serviceType = data_get($this->stripeCustomer, 'metadata.type');
+        }
+
         return collect($items)
-            ->map(function ($item) {
+            ->map(function ($item) use ($serviceType) {
                 $unitAmount = Arr::get($item, 'price.unit_amount');
 
                 return [
@@ -401,6 +471,7 @@ class ViewSubscription extends ViewRecord
                         ?? Arr::get($item, 'price.product.name')
                         ?? Arr::get($item, 'plan.nickname')
                         ?? $this->record->plan_name,
+                    'type' => $serviceType,
                     'status' => $this->record->status,
                     'unit_amount' => $unitAmount !== null ? $unitAmount / 100 : null,
                     'currency' => strtoupper(Arr::get($item, 'price.currency', $this->record->price_currency ?? 'usd')),

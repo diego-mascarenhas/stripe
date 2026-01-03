@@ -23,18 +23,24 @@ class UpdateStripeSubscriptionMetadata
         {
             // Prepare metadata for Stripe (filter null values)
             $stripeMetadata = array_filter([
+                'type' => $data['type'] ?? null,
+                'plan' => $data['plan'] ?? null,
                 'server' => $data['server'] ?? null,
                 'domain' => $data['domain'] ?? null,
                 'user' => $data['user'] ?? null,
                 'email' => $data['email'] ?? null,
+                'auto_suspend' => isset($data['auto_suspend']) ? ($data['auto_suspend'] ? 'true' : 'false') : null,
             ], fn ($value) => $value !== null && $value !== '');
 
             // Update in Stripe
             $this->stripe->updateMetadata($subscription->stripe_id, $stripeMetadata);
 
-            // Update in local database
+            // Update in local database (preserve boolean for auto_suspend)
+            $localData = $stripeMetadata;
+            $localData['auto_suspend'] = $data['auto_suspend'] ?? false;
+            
             $subscription->update([
-                'data' => $stripeMetadata,
+                'data' => $localData,
             ]);
 
             Log::info('Subscription metadata updated', [
