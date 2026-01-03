@@ -33,12 +33,7 @@ class InvoiceResource extends Resource
     {
         return $table
             ->defaultSort('invoice_created_at', 'desc')
-            ->modifyQueryUsing(fn ($query) => $query
-                ->where('status', '!=', 'draft')
-                ->orderByDesc('invoice_created_at')
-                ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
-            )
-            ->searchable()
+            ->modifyQueryUsing(fn ($query) => $query->where('status', '!=', 'draft'))
             ->persistSearchInSession()
             ->persistFiltersInSession()
             ->columns([
@@ -47,16 +42,14 @@ class InvoiceResource extends Resource
                     ->description(fn (Invoice $record): ?string => $record->invoice_created_at?->format('d/m/Y'))
                     ->searchable()
                     ->sortable(false)
-                    ->default(fn (Invoice $record): string => $record->stripe_id)
                     ->url(fn (Invoice $record): ?string => $record->hosted_invoice_url, shouldOpenInNewTab: true)
                     ->color('primary'),
-                Tables\Columns\TextColumn::make('customer_description')
+                Tables\Columns\TextColumn::make('customer_name')
                     ->label('Cliente')
                     ->description(fn (Invoice $record): ?string => $record->customer_email)
-                    ->searchable(['customer_description', 'customer_name', 'customer_email'])
+                    ->searchable(['customer_name', 'customer_description', 'customer_email'])
                     ->sortable()
                     ->wrap()
-                    ->default(fn (Invoice $record): string => $record->customer_name ?? '—')
                     ->url(fn (Invoice $record): ?string => $record->customer_id
                         ? "https://dashboard.stripe.com/customers/{$record->customer_id}"
                         : null,
