@@ -38,6 +38,9 @@ class InvoiceResource extends Resource
                 ->orderByDesc('invoice_created_at')
                 ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
             )
+            ->searchable()
+            ->persistSearchInSession()
+            ->persistFiltersInSession()
             ->columns([
                 Tables\Columns\TextColumn::make('number')
                     ->label('Número de factura')

@@ -62,25 +62,60 @@ class SubscriptionWarningMail extends Mailable
      */
     private function getPaymentUrl(): string
     {
+        // Si es una suscripción manual, usar login
+        if (str_starts_with($this->subscription->stripe_id, 'manual-')) {
+            \Log::info('Manual subscription, using login URL', [
+                'subscription_id' => $this->subscription->id,
+            ]);
+            return 'https://revisionalpha.com/login';
+        }
+
         try {
-            $stripe = new \Stripe\StripeClient(config('services.stripe.secret'));
+            $stripe = new \Stripe\StripeClient(env('STRIPE_SECRET'));
             
-            // Obtener las facturas de la suscripción
-            $invoices = $stripe->invoices->all([
-                'subscription' => $this->subscription->stripe_id,
-                'status' => 'open',
-                'limit' => 1,
+            \Log::info('Fetching Stripe invoices', [
+                'subscription_id' => $this->subscription->id,
+                'stripe_subscription_id' => $this->subscription->stripe_id,
             ]);
 
-            if (!empty($invoices->data)) {
-                return $invoices->data[0]->hosted_invoice_url ?? 'https://revisionalpha.com/login';
+            // Obtener todas las facturas pendientes de pago (open o past_due)
+            $invoices = $stripe->invoices->all([
+                'subscription' => $this->subscription->stripe_id,
+                'limit' => 10,
+            ]);
+
+            \Log::info('Stripe invoices found', [
+                'count' => count($invoices->data),
+                'subscription_id' => $this->subscription->id,
+            ]);
+
+            // Buscar la primera factura pendiente (open, past_due, or unpaid)
+            foreach ($invoices->data as $invoice) {
+                if (in_array($invoice->status, ['open', 'past_due', 'uncollectible'])) {
+                    $url = $invoice->hosted_invoice_url;
+                    
+                    \Log::info('Found unpaid invoice', [
+                        'subscription_id' => $this->subscription->id,
+                        'invoice_id' => $invoice->id,
+                        'invoice_status' => $invoice->status,
+                        'hosted_invoice_url' => $url,
+                    ]);
+                    
+                    return $url ?? 'https://revisionalpha.com/login';
+                }
             }
+
+            \Log::warning('No unpaid invoices found', [
+                'subscription_id' => $this->subscription->id,
+                'invoices_checked' => count($invoices->data),
+            ]);
 
             return 'https://revisionalpha.com/login';
         } catch (\Throwable $e) {
-            \Log::warning('Could not get Stripe payment URL', [
+            \Log::error('Could not get Stripe payment URL', [
                 'subscription_id' => $this->subscription->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return 'https://revisionalpha.com/login';
         }
