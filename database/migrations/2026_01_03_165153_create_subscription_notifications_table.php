@@ -25,6 +25,9 @@ return new class extends Migration
             $table->timestamp('sent_at')->nullable();      // Cuándo se envió
             $table->string('recipient_email');
             $table->string('recipient_name');
+            $table->longText('body')->nullable();          // HTML completo del email enviado
+            $table->timestamp('opened_at')->nullable();    // Primera vez que se abrió el email
+            $table->integer('open_count')->default(0);     // Contador de aperturas del email
             $table->text('error_message')->nullable();
             $table->json('metadata')->nullable(); // Datos adicionales del email
             $table->timestamps();
