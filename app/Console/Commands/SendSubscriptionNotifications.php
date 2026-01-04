@@ -27,7 +27,16 @@ class SendSubscriptionNotifications extends Command
     }
 
     /**
-     * Programa notificaciones de advertencia para suscripciones próximas a vencer
+     * Programa notificaciones de advertencia para suscripciones con 2 facturas impagas
+     *
+     * Lógica:
+     * - Cliente puede tener hasta 2 facturas impagas
+     * - Los avisos se envían solo cuando tiene 2 facturas impagas
+     * - Día 0: Factura generada
+     * - Día 10: Factura vence
+     * - Día 40 (30 días post-vencimiento de la más antigua): Aviso "Faltan 5 días para suspender"
+     * - Día 43 (33 días post-vencimiento de la más antigua): Aviso "Faltan 2 días para suspender"
+     * - Día 45 (35 días post-vencimiento de la más antigua): Suspensión automática
      */
     private function scheduleWarningNotifications(): void
     {
@@ -41,11 +50,36 @@ class SendSubscriptionNotifications extends Command
         $scheduled = 0;
 
         foreach ($subscriptions as $subscription) {
-            $daysUntilDue = now()->diffInDays($subscription->current_period_end, false);
+            // Contar facturas impagas de esta suscripción
+            $unpaidInvoicesCount = \App\Models\Invoice::where('stripe_subscription_id', $subscription->stripe_id)
+                ->where('status', 'open')
+                ->where('paid', false)
+                ->whereNotNull('invoice_created_at')
+                ->count();
 
-            // Aviso 5 días antes
-            if ($daysUntilDue <= 5 && $daysUntilDue > 2) {
-                if (! $this->notificationExists($subscription, 'warning_5_days')) {
+            // Solo procesar si tiene exactamente 2 facturas impagas
+            if ($unpaidInvoicesCount < 2) {
+                continue;
+            }
+
+            // Obtener la factura impaga MÁS ANTIGUA
+            $oldestUnpaidInvoice = \App\Models\Invoice::where('stripe_subscription_id', $subscription->stripe_id)
+                ->where('status', 'open')
+                ->where('paid', false)
+                ->whereNotNull('invoice_created_at')
+                ->orderBy('invoice_created_at', 'asc')
+                ->first();
+
+            if (!$oldestUnpaidInvoice) {
+                continue;
+            }
+
+            // Calcular días desde la generación de la factura más antigua
+            $daysSinceInvoiceCreated = $oldestUnpaidInvoice->invoice_created_at->diffInDays(now(), false);
+
+            // Aviso 1: A los 40 días de generada la factura (30 días post-vencimiento)
+            if ($daysSinceInvoiceCreated >= 40 && $daysSinceInvoiceCreated < 43) {
+                if (! $this->notificationExists($subscription, 'warning_5_days', $oldestUnpaidInvoice->invoice_created_at)) {
                     SubscriptionNotification::create([
                         'subscription_id' => $subscription->id,
                         'notification_type' => 'warning_5_days',
@@ -53,14 +87,16 @@ class SendSubscriptionNotifications extends Command
                         'scheduled_at' => now(),
                         'recipient_email' => $subscription->customer_email,
                         'recipient_name' => $subscription->customer_name,
+                        'body' => '', // Se llenará al enviar
                     ]);
                     $scheduled++;
+                    $this->line("  → Programado aviso 5 días para {$subscription->customer_name} (2 facturas impagas, más antigua: {$oldestUnpaidInvoice->number})");
                 }
             }
 
-            // Aviso 2 días antes
-            if ($daysUntilDue <= 2 && $daysUntilDue > 0) {
-                if (! $this->notificationExists($subscription, 'warning_2_days')) {
+            // Aviso 2: A los 43 días de generada la factura (33 días post-vencimiento)
+            if ($daysSinceInvoiceCreated >= 43 && $daysSinceInvoiceCreated < 45) {
+                if (! $this->notificationExists($subscription, 'warning_2_days', $oldestUnpaidInvoice->invoice_created_at)) {
                     SubscriptionNotification::create([
                         'subscription_id' => $subscription->id,
                         'notification_type' => 'warning_2_days',
@@ -68,13 +104,56 @@ class SendSubscriptionNotifications extends Command
                         'scheduled_at' => now(),
                         'recipient_email' => $subscription->customer_email,
                         'recipient_name' => $subscription->customer_name,
+                        'body' => '', // Se llenará al enviar
                     ]);
+                    $scheduled++;
+                    $this->line("  → Programado aviso 2 días para {$subscription->customer_name} (2 facturas impagas, más antigua: {$oldestUnpaidInvoice->number})");
+                }
+            }
+
+            // Suspensión automática: A los 45 días de generada la factura más antigua
+            if ($daysSinceInvoiceCreated >= 45) {
+                $autoSuspend = data_get($subscription->data, 'auto_suspend', false);
+
+                if ($autoSuspend && $subscription->status === 'active') {
+                    $this->suspendSubscription($subscription, $unpaidInvoicesCount);
                     $scheduled++;
                 }
             }
         }
 
-        $this->info("  → {$scheduled} notificaciones programadas");
+        $this->info("  → {$scheduled} notificaciones/acciones programadas");
+    }
+
+    /**
+     * Suspende una suscripción automáticamente
+     */
+    private function suspendSubscription(Subscription $subscription, int $unpaidInvoicesCount): void
+    {
+        try {
+            $server = data_get($subscription->data, 'server');
+            $user = data_get($subscription->data, 'user');
+
+            if (filled($server) && filled($user)) {
+                app(\App\Services\WHM\WHMServerManager::class)
+                    ->suspendAccount($server, $user, "Suspendido automáticamente: {$unpaidInvoicesCount} facturas impagas (45 días desde la más antigua)");
+
+                // Crear notificación de suspensión
+                SubscriptionNotification::create([
+                    'subscription_id' => $subscription->id,
+                    'notification_type' => 'suspended',
+                    'status' => 'pending',
+                    'scheduled_at' => now(),
+                    'recipient_email' => $subscription->customer_email,
+                    'recipient_name' => $subscription->customer_name,
+                    'body' => '',
+                ]);
+
+                $this->line("  → Suspendida cuenta WHM para {$subscription->customer_name} ({$unpaidInvoicesCount} facturas impagas)");
+            }
+        } catch (\Throwable $e) {
+            $this->error("  ✗ Error al suspender {$subscription->customer_name}: {$e->getMessage()}");
+        }
     }
 
     /**
@@ -129,13 +208,21 @@ class SendSubscriptionNotifications extends Command
     }
 
     /**
-     * Verifica si ya existe una notificación para esta suscripción
+     * Verifica si ya existe una notificación para esta suscripción en este ciclo de facturación
      */
-    private function notificationExists(Subscription $subscription, string $type): bool
+    private function notificationExists(Subscription $subscription, string $type, ?\Carbon\Carbon $invoiceCreatedAt = null): bool
     {
-        return SubscriptionNotification::where('subscription_id', $subscription->id)
-            ->where('notification_type', $type)
-            ->where('created_at', '>=', $subscription->current_period_start)
-            ->exists();
+        $query = SubscriptionNotification::where('subscription_id', $subscription->id)
+            ->where('notification_type', $type);
+
+        // Si tenemos fecha de factura, verificar que no exista notificación desde esa fecha
+        if ($invoiceCreatedAt) {
+            $query->where('created_at', '>=', $invoiceCreatedAt);
+        } else {
+            // Fallback: usar el inicio del período actual
+            $query->where('created_at', '>=', $subscription->current_period_start);
+        }
+
+        return $query->exists();
     }
 }
