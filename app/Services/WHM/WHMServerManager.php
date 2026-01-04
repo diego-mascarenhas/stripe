@@ -369,5 +369,41 @@ class WHMServerManager
             return [];
         }
     }
+
+    /**
+     * Update contact email for an account
+     */
+    public function updateContactEmail(string $server, string $username, string $email): bool
+    {
+        try {
+            Log::info('Updating WHM account contact email', [
+                'server' => $server,
+                'user' => $username,
+                'email' => $email,
+            ]);
+
+            $response = $this->makeRequest($server, 'modifyacct', [
+                'user' => $username,
+                'CONTACTEMAIL' => $email,
+            ]);
+
+            Log::info('WHM account contact email updated successfully', [
+                'server' => $server,
+                'user' => $username,
+                'response' => $response,
+            ]);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('Failed to update WHM account contact email', [
+                'server' => $server,
+                'user' => $username,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
 }
 

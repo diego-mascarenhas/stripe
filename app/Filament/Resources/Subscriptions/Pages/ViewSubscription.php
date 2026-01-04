@@ -156,10 +156,12 @@ class ViewSubscription extends ViewRecord
                 $this->record->update(['data' => $data]);
             }
 
-            // Cargar DNS si hay dominio
+            // Cargar DNS si hay dominio (usando PHP nativo en lugar de WHM)
             if ($domain) {
-                $this->whmDNS = $whm->getDNSZones($server, $domain);
-                \Log::info('WHM DNS loaded', [
+                $dnsService = app(\App\Services\DNS\DNSLookupService::class);
+                $this->whmDNS = $dnsService->getAllRecords($domain);
+                \Log::info('DNS loaded via PHP native', [
+                    'domain' => $domain,
                     'has_a_records' => !empty($this->whmDNS['A']),
                     'has_mx_records' => !empty($this->whmDNS['MX']),
                     'has_ns_records' => !empty($this->whmDNS['NS']),
@@ -518,6 +520,28 @@ class ViewSubscription extends ViewRecord
                                 try {
                                     app(\App\Actions\Subscriptions\UpdateStripeSubscriptionMetadata::class)
                                         ->handle($this->record, $data);
+
+                                    // Sincronizar email con WHM si hay server, user y email
+                                    if (!empty($data['server']) && !empty($data['user']) && !empty($data['email'])) {
+                                        try {
+                                            app(\App\Services\WHM\WHMServerManager::class)
+                                                ->updateContactEmail($data['server'], $data['user'], $data['email']);
+
+                                            \Log::info('Contact email synced with WHM', [
+                                                'server' => $data['server'],
+                                                'user' => $data['user'],
+                                                'email' => $data['email'],
+                                            ]);
+                                        } catch (\Throwable $whmException) {
+                                            \Log::warning('Failed to sync email with WHM', [
+                                                'server' => $data['server'],
+                                                'user' => $data['user'],
+                                                'email' => $data['email'],
+                                                'error' => $whmException->getMessage(),
+                                            ]);
+                                            // No lanzamos error, solo advertencia
+                                        }
+                                    }
 
                                     Notification::make()
                                         ->title('Metadata actualizada')
