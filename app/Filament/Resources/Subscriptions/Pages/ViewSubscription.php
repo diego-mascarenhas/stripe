@@ -536,10 +536,11 @@ class ViewSubscription extends ViewRecord
                             })
                             ->action(function (array $data): void {
                                 try {
+                                    // 1. Update basic metadata in Stripe
                                     app(\App\Actions\Subscriptions\UpdateStripeSubscriptionMetadata::class)
                                         ->handle($this->record, $data);
 
-                                    // Sincronizar email con WHM si hay server, user y email
+                                    // 2. Sync email with WHM if provided
                                     if (!empty($data['server']) && !empty($data['user']) && !empty($data['email'])) {
                                         try {
                                             app(\App\Services\WHM\WHMServerManager::class)
@@ -557,13 +558,25 @@ class ViewSubscription extends ViewRecord
                                                 'email' => $data['email'],
                                                 'error' => $whmException->getMessage(),
                                             ]);
-                                            // No lanzamos error, solo advertencia
                                         }
                                     }
 
+                                    // 3. Sync all server data with Stripe (WHM status, DNS, etc.)
+                                    $this->record->refresh();
+                                    $syncResult = app(\App\Actions\Subscriptions\SyncSubscriptionWithStripe::class)
+                                        ->handle($this->record);
+
+                                    $messages = ['Metadata actualizada correctamente en Stripe'];
+                                    if (!empty($syncResult['synced'])) {
+                                        $messages[] = 'Sincronizado: ' . implode(', ', $syncResult['synced']);
+                                    }
+                                    if (!empty($syncResult['errors'])) {
+                                        $messages[] = 'Advertencias: ' . implode(', ', $syncResult['errors']);
+                                    }
+
                                     Notification::make()
-                                        ->title('Metadata actualizada')
-                                        ->body('La metadata de la suscripción se actualizó correctamente en Stripe.')
+                                        ->title('Actualización completa')
+                                        ->body(implode("\n", $messages))
                                         ->success()
                                         ->send();
 
@@ -586,13 +599,29 @@ class ViewSubscription extends ViewRecord
                                 !empty(data_get($this->record->data, 'user'))
                             )
                             ->action(function () {
+                                // Sync with Stripe
+                                $syncResult = app(\App\Actions\Subscriptions\SyncSubscriptionWithStripe::class)
+                                    ->handle($this->record);
+
+                                // Reload local data
+                                $this->record->refresh();
                                 $this->loadWHMData();
 
-                                Notification::make()
-                                    ->title('Datos sincronizados')
-                                    ->body('Plan, DNS y estado actualizados correctamente')
-                                    ->success()
-                                    ->send();
+                                if ($syncResult['success']) {
+                                    $syncedFields = implode(', ', $syncResult['synced']);
+                                    Notification::make()
+                                        ->title('Datos sincronizados con Stripe')
+                                        ->body("Campos actualizados: {$syncedFields}")
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    $errors = implode(', ', $syncResult['errors']);
+                                    Notification::make()
+                                        ->title('Sincronización parcial')
+                                        ->body("Errores: {$errors}")
+                                        ->warning()
+                                        ->send();
+                                }
                             }),
                         Action::make('suspend')
                             ->label('Suspender cuenta WHM')
