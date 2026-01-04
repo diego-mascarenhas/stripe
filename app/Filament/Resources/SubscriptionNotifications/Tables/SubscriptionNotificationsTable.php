@@ -61,13 +61,11 @@ class SubscriptionNotificationsTable
                 TextColumn::make('sent_at')
                     ->label('Enviado')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable()
-                    ->placeholder('—'),
+                    ->sortable(),
                 TextColumn::make('opened_at')
                     ->label('Abierto')
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
-                    ->placeholder('—')
                     ->alignCenter(),
                 TextColumn::make('open_count')
                     ->label('Aperturas')
@@ -83,18 +81,23 @@ class SubscriptionNotificationsTable
                 TextColumn::make('error_message')
                     ->label('Error')
                     ->limit(50)
-                    ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('body')
-                    ->label('Contenido')
-                    ->limit(100)
-                    ->html()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 //
             ])
             ->actions([
+                Action::make('view')
+                    ->label('')
+                    ->icon('heroicon-o-eye')
+                    ->color('gray')
+                    ->tooltip('Ver contenido')
+                    ->modalHeading('Contenido del email')
+                    ->modalContent(fn (SubscriptionNotification $record) => new \Illuminate\Support\HtmlString(
+                        '<div class="prose dark:prose-invert max-w-none">' . $record->body . '</div>'
+                    ))
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Cerrar'),
                 Action::make('resend')
                     ->label('')
                     ->icon('heroicon-o-arrow-path')
