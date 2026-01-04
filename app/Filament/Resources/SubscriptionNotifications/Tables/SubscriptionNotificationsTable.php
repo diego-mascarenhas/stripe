@@ -92,12 +92,11 @@ class SubscriptionNotificationsTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->tooltip('Ver contenido')
-                    ->modalHeading('Contenido del email')
                     ->modalContent(fn (SubscriptionNotification $record) => new \Illuminate\Support\HtmlString(
                         '<div class="prose dark:prose-invert max-w-none">' . $record->body . '</div>'
                     ))
                     ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('Cerrar'),
+                    ->modalCancelAction(false),
                 Action::make('resend')
                     ->label('')
                     ->icon('heroicon-o-arrow-path')
