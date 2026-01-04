@@ -94,7 +94,7 @@ class SubscriptionsTable
                     ->icon(fn (?string $state): string => 'heroicon-o-server')
                     ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'warning' : 'gray'))
                     ->tooltip(fn (?string $state, ?Subscription $record): string => 
-                        $state === 'true' ? 'Nameservers OK' : 
+                        $state === 'true' ? 'Nameservers configurados' : 
                         ($state === 'false' ? 'Nameservers no configurados' : 
                         'Sin sincronizar')
                     )
@@ -106,7 +106,7 @@ class SubscriptionsTable
                     ->icon(fn (?string $state): string => 'heroicon-o-globe-alt')
                     ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'danger' : 'gray'))
                     ->tooltip(fn (?string $state): string => 
-                        $state === 'true' ? 'Dominio OK' : 
+                        $state === 'true' ? 'Dominio apunta correctamente' : 
                         ($state === 'false' ? 'Dominio no apunta' : 
                         'Sin sincronizar')
                     )
@@ -118,7 +118,7 @@ class SubscriptionsTable
                     ->icon(fn (?string $state): string => 'heroicon-o-envelope')
                     ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'danger' : 'gray'))
                     ->tooltip(fn (?string $state): string => 
-                        $state === 'true' ? 'Mail OK' : 
+                        $state === 'true' ? 'Mail apunta correctamente' : 
                         ($state === 'false' ? 'Mail no apunta' : 
                         'Sin sincronizar')
                     )
