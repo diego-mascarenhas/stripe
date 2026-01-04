@@ -41,6 +41,13 @@ class AdminPanelProvider extends PanelProvider
                 SubscriptionStatsWidget::class,
                 SubscriptionDnsStatsWidget::class,
             ])
+            ->userMenuItems([
+                'help' => \Filament\Navigation\MenuItem::make()
+                    ->label('System Help')
+                    ->url(fn () => url('/help/subscription-system'))
+                    ->icon('heroicon-o-question-mark-circle')
+                    ->openUrlInNewTab(),
+            ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

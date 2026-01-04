@@ -12,7 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Exclude Stripe webhook from CSRF protection
+        $middleware->validateCsrfTokens(except: [
+            'stripe/webhook',
+        ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
         // Currency rates: Ejecutar cada hora, sincronizar si han pasado 1 hora desde la última actualización
@@ -69,6 +72,30 @@ return Application::configure(basePath: dirname(__DIR__))
             })
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Credit notes sync failed');
+            });
+
+        // Subscription notifications: Ejecutar diariamente a las 9:00 AM
+        $schedule->command('subscriptions:send-notifications')
+            ->dailyAt('09:00')
+            ->withoutOverlapping(10)
+            ->runInBackground()
+            ->onSuccess(function () {
+                \Illuminate\Support\Facades\Log::info('Subscription notifications sent successfully');
+            })
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Subscription notifications failed');
+            });
+
+        // Check reactivations: Ejecutar cada 2 horas (backup del webhook)
+        $schedule->command('subscriptions:check-reactivations')
+            ->cron('0 */2 * * *')
+            ->withoutOverlapping(10)
+            ->runInBackground()
+            ->onSuccess(function () {
+                \Illuminate\Support\Facades\Log::info('Subscription reactivations checked successfully');
+            })
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Subscription reactivations check failed');
             });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
