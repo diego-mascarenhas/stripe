@@ -41,6 +41,9 @@ class ViewSubscription extends ViewRecord
     /** @var string|null */
     public ?string $whmStatus = null;
 
+    /** @var array<string, mixed>|null */
+    public ?array $dnsValidation = null;
+
     public function mount($record): void
     {
         parent::mount($record);
@@ -156,15 +159,16 @@ class ViewSubscription extends ViewRecord
                 $this->record->update(['data' => $data]);
             }
 
-            // Cargar DNS si hay dominio (usando PHP nativo en lugar de WHM)
+            // Cargar validación DNS si hay dominio
             if ($domain) {
                 $dnsService = app(\App\Services\DNS\DNSLookupService::class);
-                $this->whmDNS = $dnsService->getAllRecords($domain);
-                \Log::info('DNS loaded via PHP native', [
+                $this->dnsValidation = $dnsService->validateRevisionAlphaConfiguration($domain);
+                \Log::info('DNS validation completed', [
                     'domain' => $domain,
-                    'has_a_records' => !empty($this->whmDNS['A']),
-                    'has_mx_records' => !empty($this->whmDNS['MX']),
-                    'has_ns_records' => !empty($this->whmDNS['NS']),
+                    'has_own_ns' => $this->dnsValidation['has_own_ns'],
+                    'domain_points_to_service' => $this->dnsValidation['domain_points_to_service'],
+                    'mail_points_to_service' => $this->dnsValidation['mail_points_to_service'],
+                    'has_spf_include' => $this->dnsValidation['has_spf_include'],
                 ]);
             }
         } catch (\Throwable $exception) {
@@ -431,55 +435,69 @@ class ViewSubscription extends ViewRecord
                         data_get($this->record->data, 'user'),
                         data_get($this->record->data, 'email'),
                     ]))),
-                Section::make('DNS y Registros MX')
+                Section::make('Validación de Configuración DNS')
                     ->columnSpan('full')
                     ->schema([
-                        RepeatableEntry::make('dns_a')
-                            ->label('Registros A (DNS)')
-                            ->state(fn () => $this->whmDNS['A'] ?? [])
-                            ->schema([
-                                TextEntry::make('name')
-                                    ->label('Nombre'),
-                                TextEntry::make('address')
-                                    ->label('Dirección IP'),
-                                TextEntry::make('ttl')
-                                    ->label('TTL'),
-                            ])
-                            ->columns(3)
-                            ->visible(fn () => !empty($this->whmDNS['A'])),
-                        RepeatableEntry::make('dns_mx')
-                            ->label('Registros MX (Email)')
-                            ->state(fn () => $this->whmDNS['MX'] ?? [])
-                            ->schema([
-                                TextEntry::make('name')
-                                    ->label('Nombre'),
-                                TextEntry::make('exchange')
-                                    ->label('Servidor Mail'),
-                                TextEntry::make('priority')
-                                    ->label('Prioridad'),
-                                TextEntry::make('ttl')
-                                    ->label('TTL'),
-                            ])
-                            ->columns(4)
-                            ->visible(fn () => !empty($this->whmDNS['MX'])),
-                        RepeatableEntry::make('dns_ns')
-                            ->label('Registros NS (Nameservers)')
-                            ->state(fn () => $this->whmDNS['NS'] ?? [])
-                            ->schema([
-                                TextEntry::make('name')
-                                    ->label('Nombre'),
-                                TextEntry::make('nsdname')
-                                    ->label('Nameserver'),
-                                TextEntry::make('ttl')
-                                    ->label('TTL'),
-                            ])
-                            ->columns(3)
-                            ->visible(fn () => !empty($this->whmDNS['NS'])),
-                        TextEntry::make('no_dns')
-                            ->label('')
-                            ->state('No hay registros DNS disponibles o no se pudo conectar al servidor WHM')
-                            ->visible(fn () => empty($this->whmDNS)),
+                        // Nameservers
+                        TextEntry::make('dns_nameservers')
+                            ->label('Nameservers')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'Configurado correctamente' : 'No usa nameservers configurados')
+                            ->color(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'success' : 'warning')
+                            ->icon(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-exclamation-triangle')
+                            ->helperText(fn () =>
+                                'Actual: ' . implode(', ', $this->dnsValidation['current_nameservers'] ?? []) .
+                                ' | Esperado: ' . implode(', ', $this->dnsValidation['expected_nameservers'] ?? [])
+                            ),
+
+                        // Domain IP
+                        TextEntry::make('dns_domain_ip')
+                            ->label('IP del Dominio')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['domain_points_to_service'] ?? false
+                                ? 'Apunta al servicio (' . ($this->dnsValidation['matching_domain_ip'] ?? '') . ')'
+                                : 'No apunta al servicio'
+                            )
+                            ->color(fn () => $this->dnsValidation['domain_points_to_service'] ?? false ? 'success' : 'danger')
+                            ->icon(fn () => $this->dnsValidation['domain_points_to_service'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-x-circle')
+                            ->helperText(fn () =>
+                                'IPs actuales: ' . implode(', ', $this->dnsValidation['domain_ips'] ?? ['No encontradas']) .
+                                ' | IPs válidas: ' . implode(', ', $this->dnsValidation['expected_ips'] ?? [])
+                            ),
+
+                        // Mail Server IP
+                        TextEntry::make('dns_mail_ip')
+                            ->label('IP del Mail Server')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['mail_points_to_service'] ?? false
+                                ? 'Apunta al servicio (' . ($this->dnsValidation['matching_mail_ip'] ?? '') . ')'
+                                : 'No apunta al servicio'
+                            )
+                            ->color(fn () => $this->dnsValidation['mail_points_to_service'] ?? false ? 'success' : 'danger')
+                            ->icon(fn () => $this->dnsValidation['mail_points_to_service'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-x-circle')
+                            ->helperText(function () {
+                                $mxRecords = $this->dnsValidation['mx_records'] ?? [];
+                                if (empty($mxRecords)) {
+                                    return 'No hay registros MX configurados';
+                                }
+                                return 'Registros MX: ' . implode(', ', array_column($mxRecords, 'exchange'));
+                            }),
+
+                        // SPF Record
+                        TextEntry::make('dns_spf')
+                            ->label('Registro SPF')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['has_spf_include'] ?? false
+                                ? 'Incluye spf.revisionalpha.com'
+                                : 'No incluye spf.revisionalpha.com'
+                            )
+                            ->color(fn () => $this->dnsValidation['has_spf_include'] ?? false ? 'success' : 'warning')
+                            ->icon(fn () => $this->dnsValidation['has_spf_include'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-exclamation-triangle')
+                            ->helperText(fn () =>
+                                'SPF actual: ' . ($this->dnsValidation['spf_record'] ?? 'No configurado')
+                            ),
                     ])
+                    ->columns(1)
                     ->visible(fn () =>
                         $this->record->type === 'sell' &&
                         !empty(data_get($this->record->data, 'domain'))
