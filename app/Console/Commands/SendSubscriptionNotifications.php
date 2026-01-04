@@ -133,24 +133,67 @@ class SendSubscriptionNotifications extends Command
         try {
             $server = data_get($subscription->data, 'server');
             $user = data_get($subscription->data, 'user');
+            $whmSuspended = false;
+            $stripePaused = false;
 
+            // 1. Suspender cuenta WHM
             if (filled($server) && filled($user)) {
-                app(\App\Services\WHM\WHMServerManager::class)
-                    ->suspendAccount($server, $user, "Suspendido automáticamente: {$unpaidInvoicesCount} facturas impagas (45 días desde la más antigua)");
-
-                // Crear notificación de suspensión
-                SubscriptionNotification::create([
-                    'subscription_id' => $subscription->id,
-                    'notification_type' => 'suspended',
-                    'status' => 'pending',
-                    'scheduled_at' => now(),
-                    'recipient_email' => $subscription->customer_email,
-                    'recipient_name' => $subscription->customer_name,
-                    'body' => '',
-                ]);
-
-                $this->line("  → Suspendida cuenta WHM para {$subscription->customer_name} ({$unpaidInvoicesCount} facturas impagas)");
+                try {
+                    app(\App\Services\WHM\WHMServerManager::class)
+                        ->suspendAccount($server, $user, "Suspendido automáticamente: {$unpaidInvoicesCount} facturas impagas (45 días desde la más antigua)");
+                    $whmSuspended = true;
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to suspend WHM account', [
+                        'subscription_id' => $subscription->id,
+                        'server' => $server,
+                        'user' => $user,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
+
+            // 2. Pausar suscripción en Stripe
+            if (!str_starts_with($subscription->stripe_id, 'manual-')) {
+                try {
+                    $stripe = app(\Stripe\StripeClient::class);
+                    $stripe->subscriptions->update(
+                        $subscription->stripe_id,
+                        [
+                            'pause_collection' => [
+                                'behavior' => 'mark_uncollectible', // No intenta cobrar mientras está pausado
+                            ],
+                        ]
+                    );
+                    $stripePaused = true;
+
+                    \Illuminate\Support\Facades\Log::info('Stripe subscription paused', [
+                        'subscription_id' => $subscription->id,
+                        'stripe_id' => $subscription->stripe_id,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to pause Stripe subscription', [
+                        'subscription_id' => $subscription->id,
+                        'stripe_id' => $subscription->stripe_id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // 3. Actualizar estado en BD
+            $subscription->update(['status' => 'paused']);
+
+            // 4. Crear notificación de suspensión
+            SubscriptionNotification::create([
+                'subscription_id' => $subscription->id,
+                'notification_type' => 'suspended',
+                'status' => 'pending',
+                'scheduled_at' => now(),
+                'recipient_email' => $subscription->customer_email,
+                'recipient_name' => $subscription->customer_name,
+                'body' => '',
+            ]);
+
+            $this->line("  → Suspendida para {$subscription->customer_name} (WHM: " . ($whmSuspended ? 'SI' : 'NO') . ", Stripe: " . ($stripePaused ? 'SI' : 'NO') . ")");
         } catch (\Throwable $e) {
             $this->error("  ✗ Error al suspender {$subscription->customer_name}: {$e->getMessage()}");
         }

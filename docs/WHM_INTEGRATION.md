@@ -1,10 +1,10 @@
 # WHM/cPanel Integration
 
-## 📋 Configuración
+## 📋 Configuration
 
-### Variables de Entorno
+### Environment Variables
 
-Agrega las siguientes variables a tu archivo `.env`:
+Add the following variables to your `.env` file:
 
 ```bash
 # WHM API Credentials
@@ -18,49 +18,49 @@ WHM_VERIFY_SSL=true
 WHM_TIMEOUT=30
 ```
 
-### Configuración en el Servidor
+### Server Configuration
 
-1. **Acceso WHM**: Asegúrate de tener credenciales de **reseller** con permisos para:
-   - Suspender cuentas (`suspendacct`)
-   - Reactivar cuentas (`unsuspendacct`)
-   - Listar cuentas (`listaccts`)
-   - Ver información de cuentas (`accountsummary`)
+1. **WHM Access**: Make sure you have **reseller** credentials with permissions for:
+   - Suspend accounts (`suspendacct`)
+   - Unsuspend accounts (`unsuspendacct`)
+   - List accounts (`listaccts`)
+   - View account information (`accountsummary`)
 
-2. **Firewall**: El servidor debe permitir conexiones HTTPS al puerto **2087** del WHM.
+2. **Firewall**: Server must allow HTTPS connections to WHM port **2087**.
 
-3. **SSL**: Si tus servidores WHM usan certificados autofirmados, configura `WHM_VERIFY_SSL=false` (no recomendado en producción).
+3. **SSL**: If your WHM servers use self-signed certificates, configure `WHM_VERIFY_SSL=false` (not recommended in production).
 
-## 🚀 Uso
+## 🚀 Usage
 
-### Sincronización Automática
+### Automatic Synchronization
 
-El sistema sincroniza automáticamente las cuentas cuando cambia el estado de una suscripción, **solo si**:
-- La suscripción es tipo **"sell"**
-- Tiene **`auto_suspend`** activado en metadata
-- Tiene **`server`** y **`user`** configurados en metadata
+The system automatically synchronizes accounts when a subscription status changes, **only if**:
+- Subscription is type **"sell"**
+- Has **`auto_suspend`** enabled in metadata
+- Has **`server`** and **`user`** configured in metadata
 
-**Estados que suspenden:**
+**States that suspend:**
 - `canceled`
 - `past_due`
 - `unpaid`
 - `incomplete_expired`
 
-**Estados que reactivan:**
+**States that reactivate:**
 - `active`
 
-### Sincronización Manual
+### Manual Synchronization
 
-#### Sincronizar todas las suscripciones:
+#### Sync all subscriptions:
 ```bash
 php artisan subscriptions:sync-whm
 ```
 
-#### Sincronizar una suscripción específica:
+#### Sync specific subscription:
 ```bash
 php artisan subscriptions:sync-whm --subscription=123
 ```
 
-### Uso Programático
+### Programmatic Usage
 
 ```php
 use App\Actions\Subscriptions\SyncSubscriptionWithWHM;
@@ -70,9 +70,9 @@ $subscription = Subscription::find(123);
 app(SyncSubscriptionWithWHM::class)->handle($subscription);
 ```
 
-## 📊 Metadata Requerida
+## 📊 Required Metadata
 
-Para que funcione la sincronización, la suscripción debe tener en `data`:
+For synchronization to work, the subscription must have in `data`:
 
 ```json
 {
@@ -86,23 +86,23 @@ Para que funcione la sincronización, la suscripción debe tener en `data`:
 }
 ```
 
-## 🔍 Monitoreo
+## 🔍 Monitoring
 
-Todos los eventos se registran en los logs de Laravel:
+All events are logged in Laravel logs:
 
 ```bash
-# Ver logs en tiempo real
+# View real-time logs
 tail -f storage/logs/laravel.log | grep WHM
 ```
 
-**Eventos registrados:**
-- ✅ Suspensiones exitosas
-- ✅ Reactivaciones exitosas
-- ⚠️ Errores de conexión
-- ⚠️ Cuentas sin metadata completa
-- ℹ️ Cambios de estado de suscripciones
+**Logged events:**
+- ✅ Successful suspensions
+- ✅ Successful reactivations
+- ⚠️ Connection errors
+- ⚠️ Accounts without complete metadata
+- ℹ️ Subscription status changes
 
-## 🛠️ Métodos Disponibles
+## 🛠️ Available Methods
 
 ### WHMServerManager
 
@@ -111,19 +111,19 @@ use App\Services\WHM\WHMServerManager;
 
 $whm = app(WHMServerManager::class);
 
-// Suspender cuenta
+// Suspend account
 $whm->suspendAccount('server.example.com', 'username', 'Payment overdue');
 
-// Reactivar cuenta
+// Unsuspend account
 $whm->unsuspendAccount('server.example.com', 'username');
 
-// Obtener info de cuenta
+// Get account info
 $info = $whm->getAccountInfo('server.example.com', 'username');
 
-// Listar todas las cuentas de un servidor
+// List all accounts on a server
 $accounts = $whm->listAccounts('server.example.com');
 
-// Crear nueva cuenta
+// Create new account
 $whm->createAccount([
     'server' => 'server.example.com',
     'username' => 'newuser',
@@ -134,37 +134,35 @@ $whm->createAccount([
 ]);
 ```
 
-## 🔐 Seguridad
+## 🔐 Security
 
-1. **Credenciales**: Las credenciales de WHM se almacenan en `.env` y no se commitean al repositorio.
+1. **Credentials**: WHM credentials are stored in `.env` and are not committed to the repository.
 
-2. **SSL/TLS**: Por defecto, todas las conexiones usan HTTPS con verificación SSL.
+2. **SSL/TLS**: By default, all connections use HTTPS with SSL verification.
 
-3. **Logs**: Todos los errores y acciones se registran con información completa para auditoría.
+3. **Logs**: All errors and actions are logged with complete information for auditing.
 
-4. **Permisos**: El usuario reseller debe tener **solo** los permisos necesarios para las operaciones requeridas.
+4. **Permissions**: The reseller user should have **only** the necessary permissions for required operations.
 
 ## 🐛 Troubleshooting
 
 ### Error: "Connection timeout"
-- Verifica que el servidor WHM sea accesible desde tu aplicación
-- Revisa las reglas del firewall
-- Aumenta `WHM_TIMEOUT` en `.env`
+- Verify that the WHM server is accessible from your application
+- Review firewall rules
+- Increase `WHM_TIMEOUT` in `.env`
 
 ### Error: "Authentication failed"
-- Verifica que `WHM_USERNAME` y `WHM_PASSWORD` sean correctos
-- Confirma que el usuario tiene permisos de reseller
+- Verify that `WHM_USERNAME` and `WHM_PASSWORD` are correct
+- Confirm that the user has reseller permissions
 
-### No se suspende automáticamente
-- Verifica que `auto_suspend` esté en `true` en la metadata
-- Confirma que la suscripción sea tipo `sell`
-- Revisa los logs: `tail -f storage/logs/laravel.log`
+### Not automatically suspending
+- Verify that `auto_suspend` is set to `true` in metadata
+- Confirm that subscription is type `sell`
+- Check logs: `tail -f storage/logs/laravel.log`
 
-## 📚 Documentación API WHM
+## 📚 WHM API Documentation
 
 - [WHM API 1 - suspendacct](https://api.docs.cpanel.net/openapi/whm/operation/suspendacct/)
 - [WHM API 1 - unsuspendacct](https://api.docs.cpanel.net/openapi/whm/operation/unsuspendacct/)
 - [WHM API 1 - accountsummary](https://api.docs.cpanel.net/openapi/whm/operation/accountsummary/)
 - [WHM API Authentication](https://docs.cpanel.net/knowledge-base/web-services/how-to-use-cpanel-api-tokens/)
-
-

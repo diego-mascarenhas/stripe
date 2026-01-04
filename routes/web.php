@@ -6,6 +6,10 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+// Stripe Webhook (excluded from CSRF in bootstrap/app.php)
+Route::post('/stripe/webhook', [\App\Http\Controllers\StripeWebhookController::class, 'handleWebhook'])
+    ->name('stripe.webhook');
+
 // Tracking pixel for email notifications
 Route::get('/track/notification/{notification}', function ($notificationId) {
     try {
