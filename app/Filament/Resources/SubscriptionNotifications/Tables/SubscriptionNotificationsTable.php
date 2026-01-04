@@ -2,9 +2,9 @@
 
 namespace App\Filament\Resources\SubscriptionNotifications\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
+use App\Models\SubscriptionNotification;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -67,7 +67,8 @@ class SubscriptionNotificationsTable
                     ->label('Abierto')
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->alignCenter(),
                 TextColumn::make('open_count')
                     ->label('Aperturas')
                     ->badge()
@@ -77,7 +78,8 @@ class SubscriptionNotificationsTable
                         $state > 1 => 'warning',
                         default => 'gray',
                     })
-                    ->sortable(),
+                    ->sortable()
+                    ->alignCenter(),
                 TextColumn::make('error_message')
                     ->label('Error')
                     ->limit(50)
@@ -92,13 +94,55 @@ class SubscriptionNotificationsTable
             ->filters([
                 //
             ])
-            ->recordActions([
-                // Remover EditAction ya que es solo lectura
+            ->actions([
+                Action::make('resend')
+                    ->label('')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('info')
+                    ->tooltip('Reenviar')
+                    ->requiresConfirmation()
+                    ->modalHeading('Reenviar notificación')
+                    ->modalDescription('¿Estás seguro de reenviar esta notificación?')
+                    ->action(function (SubscriptionNotification $record) {
+                        try {
+                            $subscription = $record->subscription;
+
+                            // Determinar qué mail enviar según el tipo
+                            $mail = match($record->notification_type) {
+                                'warning_5_days' => new \App\Mail\SubscriptionWarningMail($subscription, 5),
+                                'warning_2_days' => new \App\Mail\SubscriptionWarningMail($subscription, 2),
+                                'suspended' => new \App\Mail\SubscriptionSuspendedMail($subscription),
+                                'reactivated' => new \App\Mail\SubscriptionReactivatedMail($subscription),
+                                default => null,
+                            };
+
+                            if ($mail) {
+                                \Illuminate\Support\Facades\Mail::to($subscription->customer_email)
+                                    ->send($mail);
+
+                                // Actualizar el registro
+                                $record->update([
+                                    'status' => 'sent',
+                                    'sent_at' => now(),
+                                ]);
+
+                                Notification::make()
+                                    ->title('Notificación reenviada')
+                                    ->body('La notificación se ha reenviado correctamente.')
+                                    ->success()
+                                    ->send();
+                            }
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('Error al reenviar')
+                                ->body('No se pudo reenviar la notificación: ' . $e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ])
             ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
+                //
             ])
             ->defaultSort('created_at', 'desc');
     }
