@@ -17,7 +17,11 @@ class SubscriptionNotificationsTable
                 TextColumn::make('subscription.customer_name')
                     ->label('Cliente')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->url(fn (SubscriptionNotification $record) =>
+                        \App\Filament\Resources\Subscriptions\SubscriptionResource::getUrl('view', ['record' => $record->subscription_id])
+                    )
+                    ->color('primary'),
                 TextColumn::make('subscription.customer_email')
                     ->label('Email')
                     ->searchable()
