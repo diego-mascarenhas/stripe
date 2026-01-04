@@ -12,13 +12,14 @@ return [
     */
 
     'services' => [
-        'whm' => [
-            'nameservers' => array_filter(explode(',', env('DNS_WHM_NAMESERVERS', 'ns1.revisionalpha.com,ns2.revisionalpha.com'))),
-            'valid_ips' => array_filter(explode(',', env('DNS_WHM_VALID_IPS', '51.83.76.40,51.195.217.63,66.70.189.5'))),
-            'spf_include' => env('DNS_WHM_SPF_INCLUDE', 'spf.revisionalpha.com'),
+        // Default service (uses generic environment variables)
+        'default' => [
+            'nameservers' => array_filter(explode(',', env('DNS_NAMESERVERS', 'ns1.revisionalpha.com,ns2.revisionalpha.com'))),
+            'valid_ips' => array_filter(explode(',', env('DNS_VALID_IPS', '51.83.76.40,51.195.217.63,66.70.189.5'))),
+            'spf_include' => env('DNS_SPF_INCLUDE', 'spf.revisionalpha.com'),
         ],
 
-        // Example: Add more services as needed
+        // Example: Add more services as needed with specific configurations
         // 'vps' => [
         //     'nameservers' => array_filter(explode(',', env('DNS_VPS_NAMESERVERS', ''))),
         //     'valid_ips' => array_filter(explode(',', env('DNS_VPS_VALID_IPS', ''))),
@@ -41,6 +42,6 @@ return [
     |
     */
 
-    'default_service' => env('DNS_DEFAULT_SERVICE', 'whm'),
+    'default_service' => env('DNS_DEFAULT_SERVICE', 'default'),
 ];
 

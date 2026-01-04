@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class TestDNSValidation extends Command
 {
-    protected $signature = 'dns:test {domain} {--service=whm : Service to validate against}';
+    protected $signature = 'dns:test {domain} {--service=default : Service to validate against}';
 
     protected $description = 'Test DNS validation for a domain';
 

@@ -434,7 +434,7 @@ class DNSLookupService
      */
     public function validateRevisionAlphaConfiguration(string $domain): array
     {
-        return $this->validateServiceConfiguration($domain, 'whm');
+        return $this->validateServiceConfiguration($domain, 'default');
     }
 }
 

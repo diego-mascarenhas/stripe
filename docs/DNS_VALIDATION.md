@@ -18,24 +18,26 @@ Sistema de validación DNS configurable para verificar que los dominios de clien
 Agrega estas variables a tu archivo `.env`:
 
 ```env
-# WHM Service
-DNS_WHM_NAMESERVERS=ns1.revisionalpha.com,ns2.revisionalpha.com
-DNS_WHM_VALID_IPS=51.83.76.40,51.195.217.63,66.70.189.5
-DNS_WHM_SPF_INCLUDE=spf.revisionalpha.com
+# Configuración por defecto (aplica a todos los servicios)
+DNS_NAMESERVERS=ns1.revisionalpha.com,ns2.revisionalpha.com
+DNS_VALID_IPS=51.83.76.40,51.195.217.63,66.70.189.5
+DNS_SPF_INCLUDE=spf.revisionalpha.com
 
-# VPS Service (ejemplo)
-DNS_VPS_NAMESERVERS=ns1.vpsservice.com,ns2.vpsservice.com
-DNS_VPS_VALID_IPS=192.0.2.1,192.0.2.2
-DNS_VPS_SPF_INCLUDE=spf.vpsservice.com
+# Servicios específicos (opcional, solo si necesitas configuraciones diferentes)
+# DNS_VPS_NAMESERVERS=ns1.vpsservice.com,ns2.vpsservice.com
+# DNS_VPS_VALID_IPS=192.0.2.1,192.0.2.2
+# DNS_VPS_SPF_INCLUDE=spf.vpsservice.com
 
-# Default service
-DNS_DEFAULT_SERVICE=whm
+# Servicio por defecto
+DNS_DEFAULT_SERVICE=default
 ```
 
 **Importante:**
 - Separa valores con **comas** (sin espacios)
 - No uses comillas
 - Las IPs deben ser IPv4 válidas
+- Usa las variables genéricas (`DNS_NAMESERVERS`, etc.) para la configuración principal
+- Crea variables específicas (`DNS_VPS_NAMESERVERS`, etc.) solo si necesitas configuraciones diferentes por servicio
 
 ### 2. Archivo de Configuración
 
@@ -73,24 +75,26 @@ use App\Services\DNS\DNSLookupService;
 
 $dns = app(DNSLookupService::class);
 
-// Validar con el servicio por defecto (whm)
+// Validar con el servicio por defecto (usa variables DNS_NAMESERVERS, DNS_VALID_IPS, etc.)
 $validation = $dns->validateRevisionAlphaConfiguration('example.com');
+// o
+$validation = $dns->validateServiceConfiguration('example.com');
 
 // Validar con un servicio específico
 $validation = $dns->validateServiceConfiguration('example.com', 'vps');
 
 // Resultado:
 [
-    'uses_revision_alpha_ns' => true,
+    'has_own_ns' => true,
     'current_nameservers' => ['ns1.revisionalpha.com', 'ns2.revisionalpha.com'],
     'expected_nameservers' => ['ns1.revisionalpha.com', 'ns2.revisionalpha.com'],
     
-    'domain_points_to_revision_alpha' => true,
+    'domain_points_to_service' => true,
     'domain_ips' => ['51.195.217.63'],
     'matching_domain_ip' => '51.195.217.63',
     'expected_ips' => ['51.83.76.40', '51.195.217.63', '66.70.189.5'],
     
-    'mail_points_to_revision_alpha' => true,
+    'mail_points_to_service' => true,
     'matching_mail_ip' => '51.195.217.63',
     'mx_records' => [...],
     
@@ -102,24 +106,32 @@ $validation = $dns->validateServiceConfiguration('example.com', 'vps');
 
 ## 🔧 Agregar Nuevos Servicios
 
+Si necesitas configuraciones diferentes para distintos tipos de servicios (por ejemplo, VPS con diferentes IPs que Hosting):
+
 ### 1. Agregar variables al .env:
 
 ```env
-DNS_CUSTOM_NAMESERVERS=ns1.custom.com,ns2.custom.com
-DNS_CUSTOM_VALID_IPS=203.0.113.1,203.0.113.2
-DNS_CUSTOM_SPF_INCLUDE=spf.custom.com
+# Configuración por defecto (la mayoría de servicios)
+DNS_NAMESERVERS=ns1.revisionalpha.com,ns2.revisionalpha.com
+DNS_VALID_IPS=51.83.76.40,51.195.217.63,66.70.189.5
+DNS_SPF_INCLUDE=spf.revisionalpha.com
+
+# Configuración específica para VPS
+DNS_VPS_NAMESERVERS=ns1.vpshost.com,ns2.vpshost.com
+DNS_VPS_VALID_IPS=203.0.113.1,203.0.113.2
+DNS_VPS_SPF_INCLUDE=spf.vpshost.com
 ```
 
 ### 2. Actualizar config/dns.php:
 
 ```php
 'services' => [
-    'whm' => [...],
+    'default' => [...], // Usa DNS_NAMESERVERS, DNS_VALID_IPS, etc.
     
-    'custom' => [
-        'nameservers' => array_filter(explode(',', env('DNS_CUSTOM_NAMESERVERS', ''))),
-        'valid_ips' => array_filter(explode(',', env('DNS_CUSTOM_VALID_IPS', ''))),
-        'spf_include' => env('DNS_CUSTOM_SPF_INCLUDE', ''),
+    'vps' => [
+        'nameservers' => array_filter(explode(',', env('DNS_VPS_NAMESERVERS', ''))),
+        'valid_ips' => array_filter(explode(',', env('DNS_VPS_VALID_IPS', ''))),
+        'spf_include' => env('DNS_VPS_SPF_INCLUDE', ''),
     ],
 ],
 ```
@@ -127,7 +139,11 @@ DNS_CUSTOM_SPF_INCLUDE=spf.custom.com
 ### 3. Usar el nuevo servicio:
 
 ```php
-$validation = $dns->validateServiceConfiguration('example.com', 'custom');
+// Usa la configuración por defecto
+$validation = $dns->validateServiceConfiguration('example.com');
+
+// Usa configuración específica de VPS
+$validation = $dns->validateServiceConfiguration('example.com', 'vps');
 ```
 
 ## 📊 Interpretación de Resultados
