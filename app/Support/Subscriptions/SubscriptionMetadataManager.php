@@ -26,41 +26,13 @@ class SubscriptionMetadataManager
                     'mailer' => 'Mailer',
                     'whatsapp' => 'WhatsApp',
                 ])
-                ->required()
-                ->reactive()
-                ->afterStateUpdated(fn (callable $set) => $set('plan', null)),
-            Select::make('plan')
+                ->required(),
+            TextInput::make('plan')
                 ->label('Plan')
-                ->options(function (callable $get) {
-                    $type = $get('type');
-                    return match ($type) {
-                        'hosting' => [
-                            'beginner' => 'Beginner',
-                            'explorer' => 'Explorer',
-                            'enthusiast' => 'Enthusiast',
-                        ],
-                        'web_cloud' => [
-                            'starter' => 'Starter',
-                            'expert' => 'Expert',
-                            'guru' => 'Guru',
-                            'wordpress' => 'WordPress',
-                        ],
-                        'vps' => [
-                            'value' => 'Value',
-                            'essential' => 'Essential',
-                            'comfort' => 'Comfort',
-                            'elite' => 'Elite',
-                        ],
-                        'mailer' => [
-                            'basic' => 'Basic',
-                            'foundation' => 'Foundation',
-                            'scale' => 'Scale',
-                        ],
-                        default => [],
-                    };
-                })
-                ->visible(fn (callable $get) => in_array($get('type'), ['hosting', 'web_cloud', 'vps', 'mailer']))
-                ->reactive(),
+                ->disabled()
+                ->dehydrated()
+                ->helperText('Este plan se obtiene automáticamente')
+                ->placeholder('Se cargará automáticamente'),
             TextInput::make('server')
                 ->label('Servidor')
                 ->placeholder('server.example.com')

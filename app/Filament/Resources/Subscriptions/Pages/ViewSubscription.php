@@ -35,11 +35,21 @@ class ViewSubscription extends ViewRecord
     /** @var array<int, array<string, mixed>> */
     public array $stripeTaxIds = [];
 
+    /** @var array<string, mixed>|null */
+    public ?array $whmDNS = null;
+
+    /** @var string|null */
+    public ?string $whmStatus = null;
+
+    /** @var array<string, mixed>|null */
+    public ?array $dnsValidation = null;
+
     public function mount($record): void
     {
         parent::mount($record);
 
         $this->loadStripeData();
+        $this->loadWHMData();
     }
 
     protected function loadStripeData(): void
@@ -100,6 +110,78 @@ class ViewSubscription extends ViewRecord
         } catch (\Throwable $exception) {
             report($exception);
             $this->stripeInvoices = [];
+        }
+    }
+
+    protected function loadWHMData(): void
+    {
+        if (! $this->record instanceof Subscription) {
+            return;
+        }
+
+        $server = data_get($this->record->data, 'server');
+        $user = data_get($this->record->data, 'user');
+        $domain = data_get($this->record->data, 'domain');
+
+        if (empty($server) || empty($user)) {
+            \Log::info('WHM data not loaded: missing server or user', [
+                'subscription_id' => $this->record->id,
+                'has_server' => !empty($server),
+                'has_user' => !empty($user),
+            ]);
+            return;
+        }
+
+        try {
+            \Log::info('Loading WHM data', [
+                'subscription_id' => $this->record->id,
+                'server' => $server,
+                'user' => $user,
+                'domain' => $domain,
+            ]);
+
+            $whm = app(\App\Services\WHM\WHMServerManager::class);
+
+            // Cargar estado de la cuenta
+            $this->whmStatus = $whm->getAccountStatus($server, $user);
+            \Log::info('WHM status loaded', ['status' => $this->whmStatus]);
+
+            // Cargar plan de la cuenta
+            $whmPlan = $whm->getAccountPackage($server, $user);
+            if ($whmPlan && $whmPlan !== data_get($this->record->data, 'plan')) {
+                \Log::info('WHM plan differs from stored plan', [
+                    'whm_plan' => $whmPlan,
+                    'stored_plan' => data_get($this->record->data, 'plan'),
+                ]);
+                // Actualizar el plan en data si es diferente
+                $data = $this->record->data ?? [];
+                $data['plan'] = $whmPlan;
+                $this->record->update(['data' => $data]);
+            }
+
+            // Cargar validación DNS si hay dominio
+            if ($domain) {
+                $dnsService = app(\App\Services\DNS\DNSLookupService::class);
+                $this->dnsValidation = $dnsService->validateRevisionAlphaConfiguration($domain);
+                \Log::info('DNS validation completed', [
+                    'domain' => $domain,
+                    'has_own_ns' => $this->dnsValidation['has_own_ns'],
+                    'domain_points_to_service' => $this->dnsValidation['domain_points_to_service'],
+                    'mail_points_to_service' => $this->dnsValidation['mail_points_to_service'],
+                    'has_spf_include' => $this->dnsValidation['has_spf_include'],
+                ]);
+            }
+        } catch (\Throwable $exception) {
+            \Log::error('Failed to load WHM data', [
+                'subscription_id' => $this->record->id,
+                'server' => $server,
+                'user' => $user,
+                'error' => $exception->getMessage(),
+                'trace' => $exception->getTraceAsString(),
+            ]);
+
+            $this->whmStatus = null;
+            $this->whmDNS = null;
         }
     }
 
@@ -353,6 +435,73 @@ class ViewSubscription extends ViewRecord
                         data_get($this->record->data, 'user'),
                         data_get($this->record->data, 'email'),
                     ]))),
+                Section::make('Validación de Configuración DNS')
+                    ->columnSpan('full')
+                    ->schema([
+                        // Nameservers
+                        TextEntry::make('dns_nameservers')
+                            ->label('Nameservers')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'Configurado correctamente' : 'No usa nameservers configurados')
+                            ->color(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'success' : 'warning')
+                            ->icon(fn () => $this->dnsValidation['has_own_ns'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-exclamation-triangle')
+                            ->helperText(fn () =>
+                                'Actual: ' . implode(', ', $this->dnsValidation['current_nameservers'] ?? []) .
+                                ' | Esperado: ' . implode(', ', $this->dnsValidation['expected_nameservers'] ?? [])
+                            ),
+
+                        // Domain IP
+                        TextEntry::make('dns_domain_ip')
+                            ->label('IP del Dominio')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['domain_points_to_service'] ?? false
+                                ? 'Apunta al servicio (' . ($this->dnsValidation['matching_domain_ip'] ?? '') . ')'
+                                : 'No apunta al servicio'
+                            )
+                            ->color(fn () => $this->dnsValidation['domain_points_to_service'] ?? false ? 'success' : 'danger')
+                            ->icon(fn () => $this->dnsValidation['domain_points_to_service'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-x-circle')
+                            ->helperText(fn () =>
+                                'IPs actuales: ' . implode(', ', $this->dnsValidation['domain_ips'] ?? ['No encontradas']) .
+                                ' | IPs válidas: ' . implode(', ', $this->dnsValidation['expected_ips'] ?? [])
+                            ),
+
+                        // Mail Server IP
+                        TextEntry::make('dns_mail_ip')
+                            ->label('IP del Mail Server')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['mail_points_to_service'] ?? false
+                                ? 'Apunta al servicio (' . ($this->dnsValidation['matching_mail_ip'] ?? '') . ')'
+                                : 'No apunta al servicio'
+                            )
+                            ->color(fn () => $this->dnsValidation['mail_points_to_service'] ?? false ? 'success' : 'danger')
+                            ->icon(fn () => $this->dnsValidation['mail_points_to_service'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-x-circle')
+                            ->helperText(function () {
+                                $mxRecords = $this->dnsValidation['mx_records'] ?? [];
+                                if (empty($mxRecords)) {
+                                    return 'No hay registros MX configurados';
+                                }
+                                return 'Registros MX: ' . implode(', ', array_column($mxRecords, 'exchange'));
+                            }),
+
+                        // SPF Record
+                        TextEntry::make('dns_spf')
+                            ->label('Registro SPF')
+                            ->badge()
+                            ->state(fn () => $this->dnsValidation['has_spf_include'] ?? false
+                                ? 'Incluye spf.revisionalpha.com'
+                                : 'No incluye spf.revisionalpha.com'
+                            )
+                            ->color(fn () => $this->dnsValidation['has_spf_include'] ?? false ? 'success' : 'warning')
+                            ->icon(fn () => $this->dnsValidation['has_spf_include'] ?? false ? 'heroicon-o-check-circle' : 'heroicon-o-exclamation-triangle')
+                            ->helperText(fn () =>
+                                'SPF actual: ' . ($this->dnsValidation['spf_record'] ?? 'No configurado')
+                            ),
+                    ])
+                    ->columns(1)
+                    ->visible(fn () =>
+                        $this->record->type === 'sell' &&
+                        !empty(data_get($this->record->data, 'domain'))
+                    ),
                 Section::make('Metadatos')
                     ->columnSpan('full')
                     ->headerActions([
@@ -362,15 +511,72 @@ class ViewSubscription extends ViewRecord
                             ->color('gray')
                             ->visible(fn () => $this->record->type === 'sell')
                             ->form(fn () => \App\Support\Subscriptions\SubscriptionMetadataManager::schema())
-                            ->fillForm(fn (): array => \App\Support\Subscriptions\SubscriptionMetadataManager::fillForm($this->record))
+                            ->fillForm(function (): array {
+                                $data = \App\Support\Subscriptions\SubscriptionMetadataManager::fillForm($this->record);
+
+                                // Cargar plan desde WHM si hay server y user
+                                if (!empty($data['server']) && !empty($data['user'])) {
+                                    try {
+                                        $whmPlan = app(\App\Services\WHM\WHMServerManager::class)
+                                            ->getAccountPackage($data['server'], $data['user']);
+
+                                        if ($whmPlan) {
+                                            $data['plan'] = $whmPlan;
+                                        }
+                                    } catch (\Throwable $e) {
+                                        \Log::warning('Could not load WHM plan', [
+                                            'server' => $data['server'],
+                                            'user' => $data['user'],
+                                            'error' => $e->getMessage(),
+                                        ]);
+                                    }
+                                }
+
+                                return $data;
+                            })
                             ->action(function (array $data): void {
                                 try {
+                                    // 1. Update basic metadata in Stripe
                                     app(\App\Actions\Subscriptions\UpdateStripeSubscriptionMetadata::class)
                                         ->handle($this->record, $data);
 
+                                    // 2. Sync email with WHM if provided
+                                    if (!empty($data['server']) && !empty($data['user']) && !empty($data['email'])) {
+                                        try {
+                                            app(\App\Services\WHM\WHMServerManager::class)
+                                                ->updateContactEmail($data['server'], $data['user'], $data['email']);
+
+                                            \Log::info('Contact email synced with WHM', [
+                                                'server' => $data['server'],
+                                                'user' => $data['user'],
+                                                'email' => $data['email'],
+                                            ]);
+                                        } catch (\Throwable $whmException) {
+                                            \Log::warning('Failed to sync email with WHM', [
+                                                'server' => $data['server'],
+                                                'user' => $data['user'],
+                                                'email' => $data['email'],
+                                                'error' => $whmException->getMessage(),
+                                            ]);
+                                        }
+                                    }
+
+                                    // 3. Sync all server data with Stripe (WHM status, DNS, etc.)
+                                    $this->record->refresh();
+                                    $syncResult = app(\App\Actions\Subscriptions\SyncSubscriptionWithStripe::class)
+                                        ->handle($this->record);
+
+                                    $messages = ['Metadata actualizada correctamente en Stripe'];
+                                    if (!empty($syncResult['synced'])) {
+                                        $messages[] = 'Sincronizado: ' . implode(', ', $syncResult['synced']);
+                                    }
+                                    if (!empty($syncResult['errors'])) {
+                                        $messages[] = 'Advertencias: ' . implode(', ', $syncResult['errors']);
+                                    }
+
                                     Notification::make()
-                                        ->title('Metadata actualizada')
-                                        ->body('La metadata de la suscripción se actualizó correctamente en Stripe.')
+                                        ->title('Actualización completa')
+                                        ->body(implode("\n", $messages))
                                         ->success()
                                         ->send();
 
@@ -384,13 +590,47 @@ class ViewSubscription extends ViewRecord
                                         ->send();
                                 }
                             }),
+                        Action::make('refresh_whm')
+                            ->label('Sincronizar')
+                            ->icon('heroicon-o-arrow-path')
+                            ->color('info')
+                            ->visible(fn () =>
+                                !empty(data_get($this->record->data, 'server')) &&
+                                !empty(data_get($this->record->data, 'user'))
+                            )
+                            ->action(function () {
+                                // Sync with Stripe
+                                $syncResult = app(\App\Actions\Subscriptions\SyncSubscriptionWithStripe::class)
+                                    ->handle($this->record);
+
+                                // Reload local data
+                                $this->record->refresh();
+                                $this->loadWHMData();
+
+                                if ($syncResult['success']) {
+                                    $syncedFields = implode(', ', $syncResult['synced']);
+                                    Notification::make()
+                                        ->title('Datos sincronizados con Stripe')
+                                        ->body("Campos actualizados: {$syncedFields}")
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    $errors = implode(', ', $syncResult['errors']);
+                                    Notification::make()
+                                        ->title('Sincronización parcial')
+                                        ->body("Errores: {$errors}")
+                                        ->warning()
+                                        ->send();
+                                }
+                            }),
                         Action::make('suspend')
                             ->label('Suspender cuenta WHM')
                             ->icon('heroicon-o-x-circle')
                             ->color('danger')
                             ->visible(fn () =>
                                 ! empty(data_get($this->record->data, 'server')) &&
-                                ! empty(data_get($this->record->data, 'user'))
+                                ! empty(data_get($this->record->data, 'user')) &&
+                                $this->whmStatus === 'active'
                             )
                             ->requiresConfirmation()
                             ->modalHeading('Suspender cuenta en WHM')
@@ -408,6 +648,9 @@ class ViewSubscription extends ViewRecord
 
                                     app(\App\Services\WHM\WHMServerManager::class)
                                         ->suspendAccount($server, $user, 'Suspendido manualmente desde el panel');
+
+                                    // Recargar datos de WHM
+                                    $this->loadWHMData();
 
                                     Notification::make()
                                         ->title('Cuenta suspendida')
@@ -428,7 +671,8 @@ class ViewSubscription extends ViewRecord
                             ->color('success')
                             ->visible(fn () =>
                                 ! empty(data_get($this->record->data, 'server')) &&
-                                ! empty(data_get($this->record->data, 'user'))
+                                ! empty(data_get($this->record->data, 'user')) &&
+                                $this->whmStatus === 'suspended'
                             )
                             ->requiresConfirmation()
                             ->modalHeading('Reactivar cuenta en WHM')
@@ -446,6 +690,9 @@ class ViewSubscription extends ViewRecord
 
                                     app(\App\Services\WHM\WHMServerManager::class)
                                         ->unsuspendAccount($server, $user);
+
+                                    // Recargar datos de WHM
+                                    $this->loadWHMData();
 
                                     Notification::make()
                                         ->title('Cuenta reactivada')
@@ -488,12 +735,37 @@ class ViewSubscription extends ViewRecord
                                         default => 'gray',
                                     })
                                     ->visible(fn () => filled(data_get($this->record->data, 'type'))),
-                                TextEntry::make('data.plan')
+                                TextEntry::make('whm_plan')
                                     ->label('Plan')
                                     ->badge()
+                                    ->state(fn () => data_get($this->record->data, 'plan') ?? '—')
                                     ->formatStateUsing(fn (?string $state): string => ucfirst($state ?? '—'))
                                     ->color('primary')
+                                    ->icon('heroicon-o-circle-stack')
                                     ->visible(fn () => filled(data_get($this->record->data, 'plan'))),
+                                TextEntry::make('whm_status')
+                                    ->label('Estado')
+                                    ->badge()
+                                    ->state(fn () => $this->whmStatus)
+                                    ->formatStateUsing(fn (?string $state): string => match($state) {
+                                        'active' => 'Activo',
+                                        'suspended' => 'Suspendido',
+                                        default => 'Sin datos'
+                                    })
+                                    ->color(fn (?string $state): string => match($state) {
+                                        'active' => 'success',
+                                        'suspended' => 'danger',
+                                        default => 'gray'
+                                    })
+                                    ->icon(fn (?string $state): string => match($state) {
+                                        'active' => 'heroicon-o-check-circle',
+                                        'suspended' => 'heroicon-o-x-circle',
+                                        default => 'heroicon-o-question-mark-circle'
+                                    })
+                                    ->visible(fn () =>
+                                        !empty(data_get($this->record->data, 'server')) &&
+                                        !empty(data_get($this->record->data, 'user'))
+                                    ),
                                 TextEntry::make('data.server')
                                     ->label('Servidor')
                                     ->icon('heroicon-o-server')
@@ -503,7 +775,7 @@ class ViewSubscription extends ViewRecord
                                     ->icon('heroicon-o-globe-alt')
                                     ->visible(fn () => filled(data_get($this->record->data, 'domain'))),
                                 TextEntry::make('data.user')
-                                    ->label('Usuario cPanel')
+                                    ->label('Usuario')
                                     ->icon('heroicon-o-user')
                                     ->copyable()
                                     ->visible(fn () => filled(data_get($this->record->data, 'user'))),

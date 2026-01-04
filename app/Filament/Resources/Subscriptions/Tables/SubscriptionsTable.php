@@ -87,6 +87,63 @@ class SubscriptionsTable
                         'danger' => static fn ($state): bool => in_array($state, ['canceled', 'unpaid', 'incomplete_expired']),
                     ])
                     ->sortable(),
+                
+                // DNS and WHM Status Icons
+                Tables\Columns\IconColumn::make('data.dns_has_own_ns')
+                    ->label('')
+                    ->icon(fn (?string $state): string => 'heroicon-o-server')
+                    ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'warning' : 'gray'))
+                    ->tooltip(fn (?string $state, ?Subscription $record): string => 
+                        $state === 'true' ? 'Nameservers configurados' : 
+                        ($state === 'false' ? 'Nameservers no configurados' : 
+                        'Sin sincronizar')
+                    )
+                    ->default('—')
+                    ->toggleable(),
+                
+                Tables\Columns\IconColumn::make('data.dns_domain_points_to_service')
+                    ->label('')
+                    ->icon(fn (?string $state): string => 'heroicon-o-globe-alt')
+                    ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'danger' : 'gray'))
+                    ->tooltip(fn (?string $state): string => 
+                        $state === 'true' ? 'Dominio apunta correctamente' : 
+                        ($state === 'false' ? 'Dominio no apunta' : 
+                        'Sin sincronizar')
+                    )
+                    ->default('—')
+                    ->toggleable(),
+                
+                Tables\Columns\IconColumn::make('data.dns_mail_points_to_service')
+                    ->label('')
+                    ->icon(fn (?string $state): string => 'heroicon-o-envelope')
+                    ->color(fn (?string $state): string => $state === 'true' ? 'success' : ($state === 'false' ? 'danger' : 'gray'))
+                    ->tooltip(fn (?string $state): string => 
+                        $state === 'true' ? 'Mail apunta correctamente' : 
+                        ($state === 'false' ? 'Mail no apunta' : 
+                        'Sin sincronizar')
+                    )
+                    ->default('—')
+                    ->toggleable(),
+                
+                Tables\Columns\IconColumn::make('data.whm_status')
+                    ->label('')
+                    ->icon(fn (?string $state): string => match($state) {
+                        'active' => 'heroicon-o-check-circle',
+                        'suspended' => 'heroicon-o-x-circle',
+                        default => 'heroicon-o-question-mark-circle',
+                    })
+                    ->color(fn (?string $state): string => match($state) {
+                        'active' => 'success',
+                        'suspended' => 'danger',
+                        default => 'gray',
+                    })
+                    ->tooltip(fn (?string $state): string => match($state) {
+                        'active' => 'Servicio activo',
+                        'suspended' => 'Servicio suspendido',
+                        default => 'Sin sincronizar',
+                    })
+                    ->default('—')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('amount_usd')
                     ->label('USD')
                     ->state(fn (Subscription $record): string => $formatAmount(
@@ -169,8 +226,10 @@ class SubscriptionsTable
             ->recordUrl(fn (Subscription $record): string => SubscriptionResource::getUrl('view', ['record' => $record]))
             ->actions([
                 Action::make('edit')
-                    ->label('Editar')
+                    ->label('')
                     ->icon('heroicon-o-pencil-square')
+                    ->color('gray')
+                    ->tooltip('Editar compra')
                     ->visible(fn (Subscription $record): bool => $record->type === 'buy')
                     ->form(fn () => ManualPurchaseManager::schema())
                     ->fillForm(function (Subscription $record): array {
@@ -196,8 +255,10 @@ class SubscriptionsTable
                             ->send();
                     }),
                 Action::make('metadata')
-                    ->label('Metadata')
+                    ->label('')
                     ->icon('heroicon-o-tag')
+                    ->color('info')
+                    ->tooltip('Editar metadata')
                     ->visible(fn (Subscription $record): bool => $record->type === 'sell')
                     ->form(fn () => SubscriptionMetadataManager::schema())
                     ->fillForm(fn (Subscription $record): array => SubscriptionMetadataManager::fillForm($record))

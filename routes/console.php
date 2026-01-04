@@ -13,3 +13,10 @@ Schedule::command('subscriptions:send-notifications')
     ->daily()
     ->at('09:00')
     ->emailOutputOnFailure(config('mail.from.address'));
+
+// Sincronizar metadata de suscripciones con Stripe (WHM + DNS)
+Schedule::command('subscriptions:sync')
+    ->everySixHours()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->emailOutputOnFailure(config('mail.from.address'));

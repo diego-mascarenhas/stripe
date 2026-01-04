@@ -140,20 +140,164 @@ class WHMServerManager
     public function getAccountInfo(string $server, string $username): ?array
     {
         try {
+            Log::info('Requesting WHM account info', compact('server', 'username'));
+
             $response = $this->makeRequest($server, 'accountsummary', [
                 'user' => $username,
             ]);
 
-            return $response['data']['acct'][0] ?? null;
+            Log::info('WHM account info response', [
+                'server' => $server,
+                'user' => $username,
+                'response' => $response,
+            ]);
+
+            // WHM returns data directly in 'acct', not wrapped in 'data'
+            $accountData = $response['acct'][0] ?? null;
+
+            if (!$accountData) {
+                Log::warning('No account data found in WHM response', [
+                    'server' => $server,
+                    'user' => $username,
+                    'response_structure' => array_keys($response),
+                ]);
+            } else {
+                Log::info('Account data extracted successfully', [
+                    'server' => $server,
+                    'user' => $username,
+                    'plan' => $accountData['plan'] ?? null,
+                    'suspended' => $accountData['suspended'] ?? null,
+                ]);
+            }
+
+            return $accountData;
         } catch (\Throwable $e) {
             Log::error('Failed to get WHM account info', [
                 'server' => $server,
                 'user' => $username,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return null;
         }
+    }
+
+    /**
+     * Get account package/plan
+     */
+    public function getAccountPackage(string $server, string $username): ?string
+    {
+        $accountInfo = $this->getAccountInfo($server, $username);
+
+        if (!$accountInfo) {
+            return null;
+        }
+
+        return $accountInfo['plan'] ?? null;
+    }
+
+    /**
+     * Get account status (active/suspended)
+     */
+    public function getAccountStatus(string $server, string $username): ?string
+    {
+        $accountInfo = $this->getAccountInfo($server, $username);
+
+        if (!$accountInfo) {
+            return null;
+        }
+
+        // WHM returns 1 for suspended, 0 for active
+        $suspended = $accountInfo['suspended'] ?? 0;
+        return $suspended == 1 ? 'suspended' : 'active';
+    }
+
+    /**
+     * Get DNS zones for a domain
+     */
+    public function getDNSZones(string $server, string $domain): ?array
+    {
+        try {
+            Log::info('Getting DNS zones', compact('server', 'domain'));
+
+            $response = $this->makeRequest($server, 'dumpzone', [
+                'domain' => $domain,
+            ]);
+
+            Log::info('DNS zones response', [
+                'server' => $server,
+                'domain' => $domain,
+                'response_keys' => array_keys($response),
+                'response' => $response,
+            ]);
+
+            // WHM dumpzone returns zones in 'zone' key, not 'data'
+            $zones = $response['zone'][0]['record'] ?? $response['data'] ?? [];
+
+            if (empty($zones)) {
+                Log::warning('No DNS zones found', [
+                    'server' => $server,
+                    'domain' => $domain,
+                ]);
+                return null;
+            }
+
+            Log::info('DNS zones extracted', [
+                'server' => $server,
+                'domain' => $domain,
+                'zone_count' => count($zones),
+            ]);
+
+            return $this->parseDNSZones($zones);
+        } catch (\Throwable $e) {
+            Log::error('Failed to get DNS zones', [
+                'server' => $server,
+                'domain' => $domain,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Parse DNS zones from WHM response
+     */
+    private function parseDNSZones(array $zones): array
+    {
+        $parsed = [
+            'A' => [],
+            'MX' => [],
+            'NS' => [],
+        ];
+
+        foreach ($zones as $zone) {
+            $type = $zone['type'] ?? null;
+
+            if ($type === 'A') {
+                $parsed['A'][] = [
+                    'name' => $zone['name'] ?? '',
+                    'address' => $zone['address'] ?? '',
+                    'ttl' => $zone['ttl'] ?? '',
+                ];
+            } elseif ($type === 'MX') {
+                $parsed['MX'][] = [
+                    'name' => $zone['name'] ?? '',
+                    'exchange' => $zone['exchange'] ?? '',
+                    'priority' => $zone['preference'] ?? '',
+                    'ttl' => $zone['ttl'] ?? '',
+                ];
+            } elseif ($type === 'NS') {
+                $parsed['NS'][] = [
+                    'name' => $zone['name'] ?? '',
+                    'nsdname' => $zone['nsdname'] ?? '',
+                    'ttl' => $zone['ttl'] ?? '',
+                ];
+            }
+        }
+
+        return $parsed;
     }
 
     /**
@@ -214,7 +358,8 @@ class WHMServerManager
         try {
             $response = $this->makeRequest($server, 'listaccts');
 
-            return $response['data']['acct'] ?? [];
+            // WHM returns accounts directly in 'acct', not wrapped in 'data'
+            return $response['acct'] ?? [];
         } catch (\Throwable $e) {
             Log::error('Failed to list WHM accounts', [
                 'server' => $server,
@@ -222,6 +367,42 @@ class WHMServerManager
             ]);
 
             return [];
+        }
+    }
+
+    /**
+     * Update contact email for an account
+     */
+    public function updateContactEmail(string $server, string $username, string $email): bool
+    {
+        try {
+            Log::info('Updating WHM account contact email', [
+                'server' => $server,
+                'user' => $username,
+                'email' => $email,
+            ]);
+
+            $response = $this->makeRequest($server, 'modifyacct', [
+                'user' => $username,
+                'CONTACTEMAIL' => $email,
+            ]);
+
+            Log::info('WHM account contact email updated successfully', [
+                'server' => $server,
+                'user' => $username,
+                'response' => $response,
+            ]);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('Failed to update WHM account contact email', [
+                'server' => $server,
+                'user' => $username,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
     }
 }

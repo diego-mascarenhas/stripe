@@ -110,7 +110,7 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
 
             // PROFIT TOTAL
             Stat::make('Profit Total (EUR)', number_format($profit, 2, ',', '.').' €')
-                ->description('Ingresos - Gastos (suscripciones activas)')
+                ->description('Ingresos - Gastos')
                 ->descriptionIcon('heroicon-m-chart-bar')
                 ->color($profit >= 0 ? 'success' : 'danger'),
 
