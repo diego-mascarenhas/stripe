@@ -109,6 +109,19 @@ class TestSubscriptionNotifications extends Command
             $notifications = $this->getNotificationsToSend($choice);
 
             foreach ($notifications as $type => $days) {
+                // VALIDACIÓN: "reactivated" solo si está actualmente suspendido (paused)
+                if ($type === 'reactivated' && $subscription->status !== 'paused') {
+                    $this->warn("  ⚠️  Omitiendo notificación 'reactivated': la suscripción no está suspendida");
+                    $this->line("      Estado actual: {$subscription->status} (debe ser 'paused' para enviar reactivación)");
+                    continue;
+                }
+
+                // VALIDACIÓN: "suspended" solo si NO está ya suspendido
+                if ($type === 'suspended' && in_array($subscription->status, ['paused', 'canceled'])) {
+                    $this->warn("  ⚠️  Omitiendo notificación 'suspended': la suscripción ya está suspendida/cancelada (status: {$subscription->status})");
+                    continue;
+                }
+
                 $this->sendTestNotification($subscription, $type, $days);
             }
 
