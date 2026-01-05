@@ -219,10 +219,15 @@ class SendSubscriptionNotifications extends Command
                 $mailable = $this->getMailable($notification);
 
                 if ($mailable) {
+                    // Renderizar el HTML del email antes de enviar
+                    $htmlBody = $mailable->render();
+
+                    // Enviar el email
                     Mail::to($notification->recipient_email)
                         ->send($mailable);
 
-                    $notification->markAsSent();
+                    // Guardar el HTML renderizado y marcar como enviado
+                    $notification->markAsSent($htmlBody);
                     $sent++;
                     $this->line("  ✓ Enviado: {$notification->getTypeLabel()} a {$notification->recipient_email}");
                 }

@@ -68,12 +68,19 @@ class SubscriptionNotification extends Model
     /**
      * Mark as sent
      */
-    public function markAsSent(): void
+    public function markAsSent(?string $body = null): void
     {
-        $this->update([
+        $data = [
             'status' => 'sent',
             'sent_at' => now(),
-        ]);
+        ];
+
+        if ($body !== null)
+        {
+            $data['body'] = $body;
+        }
+
+        $this->update($data);
     }
 
     /**
