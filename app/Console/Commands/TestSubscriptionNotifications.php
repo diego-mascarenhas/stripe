@@ -163,14 +163,7 @@ class TestSubscriptionNotifications extends Command
 
             $this->line("  🔄 Enviando email...");
 
-            // Renderizar el HTML del email ANTES de enviar
-            $htmlBody = $mailable->render();
-
-            // Enviar el email
-            Mail::to($subscription->customer_email)->send($mailable);
-            $this->line("  📧 Email enviado");
-
-            // Crear notificación con el body
+            // Crear notificación primero para tener el ID
             $notification = SubscriptionNotification::create([
                 'subscription_id' => $subscription->id,
                 'notification_type' => $type,
@@ -181,8 +174,30 @@ class TestSubscriptionNotifications extends Command
                 'metadata' => ['test' => true],
             ]);
 
-            // Marcar como enviado con el body HTML
-            $notification->markAsSent($htmlBody);
+            // Renderizar el HTML del email
+            $htmlBody = $mailable->render();
+
+            // Agregar el pixel de tracking ANTES de enviar
+            $trackingPixel = '<img src="' . $notification->getTrackingUrl() . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px;" alt="" />';
+            $htmlBodyWithPixel = str_replace('</body>', $trackingPixel . '</body>', $htmlBody);
+
+            // Obtener el subject del mailable
+            $subject = $mailable->envelope()->subject;
+
+            // Enviar el email CON el pixel incluido
+            Mail::send([], [], function ($message) use ($subscription, $htmlBodyWithPixel, $subject) {
+                $message->to($subscription->customer_email, $subscription->customer_name)
+                    ->subject($subject)
+                    ->html($htmlBodyWithPixel);
+            });
+            $this->line("  📧 Email enviado");
+
+            // Guardar el HTML con pixel y marcar como enviado
+            $notification->update([
+                'body' => $htmlBodyWithPixel,
+                'status' => 'sent',
+                'sent_at' => now(),
+            ]);
 
             $typeLabel = match($type) {
                 'warning_5_days' => '⚠️  Aviso 5 días',

@@ -66,7 +66,23 @@ class SubscriptionNotification extends Model
     }
 
     /**
-     * Mark as sent
+     * Generate a tracking token for this notification
+     */
+    public function getTrackingToken(): string
+    {
+        return hash('sha256', config('app.key') . $this->id);
+    }
+
+    /**
+     * Get the tracking URL for open events
+     */
+    public function getTrackingUrl(): string
+    {
+        return route('notification.track.pixel', ['token' => $this->getTrackingToken()]);
+    }
+
+    /**
+     * Mark as sent and add tracking pixel to body
      */
     public function markAsSent(?string $body = null): void
     {
@@ -77,7 +93,11 @@ class SubscriptionNotification extends Model
 
         if ($body !== null)
         {
-            $data['body'] = $body;
+            // Agregar tracking pixel antes del cierre de </body>
+            $trackingPixel = '<img src="' . $this->getTrackingUrl() . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px;" alt="" />';
+            $bodyWithTracking = str_replace('</body>', $trackingPixel . '</body>', $body);
+
+            $data['body'] = $bodyWithTracking;
         }
 
         $this->update($data);

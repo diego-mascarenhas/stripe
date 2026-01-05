@@ -219,15 +219,30 @@ class SendSubscriptionNotifications extends Command
                 $mailable = $this->getMailable($notification);
 
                 if ($mailable) {
-                    // Renderizar el HTML del email antes de enviar
+                    // Renderizar el HTML del email
                     $htmlBody = $mailable->render();
 
-                    // Enviar el email
-                    Mail::to($notification->recipient_email)
-                        ->send($mailable);
+                    // Agregar el pixel de tracking ANTES de enviar
+                    $trackingPixel = '<img src="' . $notification->getTrackingUrl() . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px;" alt="" />';
+                    $htmlBodyWithPixel = str_replace('</body>', $trackingPixel . '</body>', $htmlBody);
 
-                    // Guardar el HTML renderizado y marcar como enviado
-                    $notification->markAsSent($htmlBody);
+                    // Obtener el subject del mailable
+                    $subject = $mailable->envelope()->subject;
+
+                    // Enviar el email CON el pixel incluido
+                    Mail::send([], [], function ($message) use ($notification, $htmlBodyWithPixel, $subject) {
+                        $message->to($notification->recipient_email, $notification->recipient_name)
+                            ->subject($subject)
+                            ->html($htmlBodyWithPixel);
+                    });
+
+                    // Guardar el HTML con pixel y marcar como enviado
+                    $notification->update([
+                        'body' => $htmlBodyWithPixel,
+                        'status' => 'sent',
+                        'sent_at' => now(),
+                    ]);
+
                     $sent++;
                     $this->line("  ✓ Enviado: {$notification->getTypeLabel()} a {$notification->recipient_email}");
                 }
