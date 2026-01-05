@@ -38,7 +38,7 @@
             <!-- Timeline Section -->
             <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-6">🗓️ Event Timeline</h2>
-                
+
                 <div class="space-y-8">
                     <!-- Day 0 -->
                     <div class="timeline-item">
@@ -190,10 +190,10 @@
             <!-- Webhooks Section -->
             <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-6">🔔 Webhooks</h2>
-                
+
                 <div class="prose max-w-none">
                     <p class="text-gray-700 mb-4">
-                        Webhooks provide <strong>immediate reactivation</strong> when a customer pays their invoice. 
+                        Webhooks provide <strong>immediate reactivation</strong> when a customer pays their invoice.
                         Stripe sends real-time events to our system.
                     </p>
 
@@ -203,8 +203,8 @@
                             <code class="text-blue-900 font-mono text-base break-all">https://gestion.revisionalpha.com/stripe/webhook</code>
                         </div>
                         <div class="mt-3">
-                            <a href="https://dashboard.stripe.com/webhooks" 
-                               target="_blank" 
+                            <a href="https://dashboard.stripe.com/webhooks"
+                               target="_blank"
                                class="inline-flex items-center text-blue-600 hover:text-blue-800 font-semibold">
                                 🔗 Configure in Stripe Dashboard
                                 <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -215,7 +215,7 @@
                     </div>
 
                     <h3 class="text-lg font-semibold text-gray-900 mb-3">Configured Events:</h3>
-                    
+
                     <div class="space-y-4">
                         <div class="border-l-4 border-green-500 pl-4">
                             <h4 class="font-semibold text-gray-900">💰 invoice.payment_succeeded</h4>
@@ -261,10 +261,10 @@
             <!-- Webhook Backup Section -->
             <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-6">🔄 Webhook Backup (Scheduler)</h2>
-                
+
                 <div class="prose max-w-none">
                     <p class="text-gray-700 mb-4">
-                        In case the webhook fails or is delayed, a <strong>backup command</strong> runs automatically 
+                        In case the webhook fails or is delayed, a <strong>backup command</strong> runs automatically
                         every 2 hours to check for suspended subscriptions that should be reactivated.
                     </p>
 
@@ -277,7 +277,7 @@
                     </div>
 
                     <h3 class="text-lg font-semibold text-gray-900 mb-3">What It Does:</h3>
-                    
+
                     <ol class="list-decimal ml-6 space-y-2 text-gray-700">
                         <li>Finds all subscriptions with status <code class="bg-gray-200 px-2 py-1 rounded">paused</code></li>
                         <li>Counts unpaid invoices for each suspended subscription</li>
@@ -288,7 +288,7 @@
 
                     <div class="mt-6 bg-green-50 rounded-lg p-4 border border-green-200">
                         <p class="text-sm text-green-800">
-                            <strong>✅ Reliability:</strong> Ensures no subscription is left suspended after payment, 
+                            <strong>✅ Reliability:</strong> Ensures no subscription is left suspended after payment,
                             even if webhook fails.
                         </p>
                     </div>
@@ -306,16 +306,22 @@
             <!-- Quick Reference -->
             <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-sm p-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-4">📌 Quick Reference</h2>
-                
+
                 <div class="grid md:grid-cols-2 gap-4">
                     <div class="bg-white rounded p-4 border border-gray-200">
                         <h3 class="font-semibold text-gray-900 mb-3">Testing Commands</h3>
                         <div class="space-y-2">
                             <div class="bg-gray-900 rounded p-2">
-                                <code class="text-green-400 text-sm font-mono">php artisan stripe:test-webhook --check</code>
+                                <code class="text-green-400 text-sm font-mono">php artisan subscription:find {search}</code>
                             </div>
                             <div class="bg-gray-900 rounded p-2">
-                                <code class="text-green-400 text-sm font-mono">php artisan test:notification-logic {id}</code>
+                                <code class="text-green-400 text-sm font-mono">php artisan subscription:check {id}</code>
+                            </div>
+                            <div class="bg-gray-900 rounded p-2">
+                                <code class="text-green-400 text-sm font-mono">php artisan subscription:force-suspend {id}</code>
+                            </div>
+                            <div class="bg-gray-900 rounded p-2">
+                                <code class="text-green-400 text-sm font-mono">php artisan stripe:test-webhook --check</code>
                             </div>
                         </div>
                     </div>
@@ -328,6 +334,9 @@
                             </div>
                             <div class="bg-gray-900 rounded p-2">
                                 <code class="text-yellow-400 text-sm font-mono">tail -f storage/logs/laravel.log | grep reactivat</code>
+                            </div>
+                            <div class="bg-gray-900 rounded p-2">
+                                <code class="text-yellow-400 text-sm font-mono">tail -f storage/logs/laravel.log | grep suspend</code>
                             </div>
                         </div>
                     </div>

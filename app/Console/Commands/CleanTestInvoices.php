@@ -20,3 +20,4 @@ class CleanTestInvoices extends Command
     }
 }
 
+
