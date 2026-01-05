@@ -16,8 +16,9 @@ class CheckSubscriptionReactivations extends Command
     {
         $this->info('🔄 Verificando suscripciones suspendidas...');
 
-        // Buscar suscripciones pausadas/past_due
-        $suspendedSubscriptions = Subscription::whereIn('status', ['paused', 'past_due'])
+        // Buscar SOLO suscripciones pausadas (suspendidas por nosotros)
+        // IMPORTANTE: No incluir 'past_due' porque significa pagos atrasados pero servicio activo
+        $suspendedSubscriptions = Subscription::where('status', 'paused')
             ->get();
 
         if ($suspendedSubscriptions->isEmpty()) {

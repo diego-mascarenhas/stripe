@@ -16,25 +16,52 @@ Route::post('/stripe/webhook', [\App\Http\Controllers\StripeWebhookController::c
     ->name('stripe.webhook');
 
 // Tracking pixel for email notifications
-Route::get('/track/notification/{notification}', function ($notificationId) {
+Route::get('/track/{token}', function ($token) {
+    \Log::info('Tracking: token recibido', ['token' => $token]);
+    
     try {
-        $notification = \App\Models\SubscriptionNotification::findOrFail($notificationId);
+        // Buscar notificación por token
+        $notification = \App\Models\SubscriptionNotification::all()->first(function ($n) use ($token) {
+            return hash_equals($n->getTrackingToken(), $token);
+        });
 
-        // Registrar apertura
-        if (!$notification->opened_at) {
-            $notification->opened_at = now();
+        if ($notification) {
+            \Log::info('Tracking: notificación encontrada', ['id' => $notification->id]);
+
+            // Registrar apertura usando inserción directa en BD
+            \DB::table('subscription_notifications')
+                ->where('id', $notification->id)
+                ->whereNull('opened_at')
+                ->update([
+                    'opened_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            // Incrementar contador de aperturas
+            \DB::table('subscription_notifications')
+                ->where('id', $notification->id)
+                ->increment('open_count');
+
+            \Log::info('Tracking: apertura registrada', [
+                'notification_id' => $notification->id,
+                'recipient' => $notification->recipient_email,
+            ]);
+        } else {
+            \Log::warning('Tracking: notificación NO encontrada para token', ['token' => substr($token, 0, 10) . '...']);
         }
-        $notification->increment('open_count');
-
-        // Retornar pixel transparente 1x1
-        return response(base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'))
-            ->header('Content-Type', 'image/gif')
-            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-            ->header('Pragma', 'no-cache');
     } catch (\Throwable $e) {
-        // Retornar pixel vacío incluso si hay error
-        return response(base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'))
-            ->header('Content-Type', 'image/gif');
+        \Log::error('Tracking: error al procesar', [
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
     }
+
+    // Siempre retornar pixel transparente 1x1 con headers anti-cache
+    return response(base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'))
+        ->header('Content-Type', 'image/gif')
+        ->header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        ->header('Pragma', 'no-cache')
+        ->header('Expires', '0');
 })->name('notification.track.pixel');
 

@@ -110,8 +110,10 @@ class StripeWebhookController extends Controller
                     'current_status' => $subscription->status,
                 ]);
 
-                // Si tiene menos de 2 facturas impagas, reactivar
-                if ($unpaidCount < 2 && in_array($subscription->status, ['paused', 'past_due'])) {
+                // Si tiene menos de 2 facturas impagas Y está suspendido (paused), reactivar
+                // IMPORTANTE: Solo reactivar si está en 'paused' (suspendido por nosotros)
+                // 'past_due' significa pagos atrasados pero el servicio sigue activo
+                if ($unpaidCount < 2 && $subscription->status === 'paused') {
                     app(ReactivateSuspendedSubscription::class)->handle($subscription);
                 }
             }

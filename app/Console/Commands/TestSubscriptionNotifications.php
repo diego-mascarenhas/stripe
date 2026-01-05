@@ -17,31 +17,17 @@ class TestSubscriptionNotifications extends Command
 
     public function handle(): int
     {
-        // FORZAR configuración MySQL para testing
-        config([
-            'database.default' => 'mysql',
-            'database.connections.mysql.database' => 'stripe',
-            'database.connections.mysql.password' => 'Passw0rd!',
-        ]);
-
-        // FORZAR configuración de mail para testing
-        config([
-            'mail.default' => 'smtp',
-            'mail.mailers.smtp.transport' => 'smtp',
-            'mail.mailers.smtp.host' => '127.0.0.1',
-            'mail.mailers.smtp.port' => 1025,
-            'mail.mailers.smtp.encryption' => null,
-            'mail.mailers.smtp.username' => null,
-            'mail.mailers.smtp.password' => null,
-        ]);
-
         $this->info('🧪 Iniciando prueba de notificaciones...');
         $this->newLine();
 
-        // Primero verificar conexión
-        $this->line("🔍 Base de datos: " . config('database.connections.mysql.database'));
+        // Mostrar configuración actual
+        $this->line("🔍 Base de datos: " . config('database.connections.' . config('database.default') . '.database'));
         $this->line("📧 Mail driver: " . config('mail.default'));
-        $this->line("📧 SMTP host: " . config('mail.mailers.smtp.host') . ':' . config('mail.mailers.smtp.port'));
+        
+        if (config('mail.default') === 'smtp') {
+            $this->line("📧 SMTP: " . config('mail.mailers.smtp.host') . ':' . config('mail.mailers.smtp.port'));
+        }
+        
         $this->newLine();
 
         $subscriptionId = $this->option('subscription');
@@ -123,6 +109,19 @@ class TestSubscriptionNotifications extends Command
             $notifications = $this->getNotificationsToSend($choice);
 
             foreach ($notifications as $type => $days) {
+                // VALIDACIÓN: "reactivated" solo si está actualmente suspendido (paused)
+                if ($type === 'reactivated' && $subscription->status !== 'paused') {
+                    $this->warn("  ⚠️  Omitiendo notificación 'reactivated': la suscripción no está suspendida");
+                    $this->line("      Estado actual: {$subscription->status} (debe ser 'paused' para enviar reactivación)");
+                    continue;
+                }
+
+                // VALIDACIÓN: "suspended" solo si NO está ya suspendido
+                if ($type === 'suspended' && in_array($subscription->status, ['paused', 'canceled'])) {
+                    $this->warn("  ⚠️  Omitiendo notificación 'suspended': la suscripción ya está suspendida/cancelada (status: {$subscription->status})");
+                    continue;
+                }
+
                 $this->sendTestNotification($subscription, $type, $days);
             }
 
@@ -164,50 +163,41 @@ class TestSubscriptionNotifications extends Command
 
             $this->line("  🔄 Enviando email...");
 
-            // Enviar email con logging explícito
-            try {
-                Mail::to($subscription->customer_email)->send($mailable);
-                $this->line("  📧 Mail::send() ejecutado");
-            } catch (\Throwable $mailException) {
-                $this->error("  ❌ Error en Mail::send(): " . $mailException->getMessage());
-                throw $mailException;
-            }
+            // Crear notificación primero para tener el ID
+            $notification = SubscriptionNotification::create([
+                'subscription_id' => $subscription->id,
+                'notification_type' => $type,
+                'status' => 'pending',
+                'scheduled_at' => now(),
+                'recipient_email' => $subscription->customer_email,
+                'recipient_name' => $subscription->customer_name,
+                'metadata' => ['test' => true],
+            ]);
 
-            // Renderizar el email para obtener el body DESPUÉS de enviarlo
-            try {
-                $body = $mailable->render();
+            // Renderizar el HTML del email
+            $htmlBody = $mailable->render();
 
-                // Crear registro de notificación
-                $notification = SubscriptionNotification::create([
-                    'subscription_id' => $subscription->id,
-                    'notification_type' => $type,
-                    'status' => 'sent',
-                    'scheduled_at' => now(),
-                    'sent_at' => now(),
-                    'recipient_email' => $subscription->customer_email,
-                    'recipient_name' => $subscription->customer_name,
-                    'body' => $body,
-                    'metadata' => ['test' => true],
-                ]);
+            // Agregar el pixel de tracking ANTES de enviar
+            $trackingPixel = '<img src="' . $notification->getTrackingUrl() . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px;" alt="" />';
+            $htmlBodyWithPixel = str_replace('</body>', $trackingPixel . '</body>', $htmlBody);
 
-                // Agregar tracking pixel al body
-                $trackingPixel = '<img src="' . route('notification.track.pixel', ['notification' => $notification->id]) . '" width="1" height="1" border="0" style="display: block; width: 1px; height: 1px" alt="" />';
-                $bodyWithTracking = str_replace('</body>', $trackingPixel . '</body>', $body);
-                $notification->update(['body' => $bodyWithTracking]);
-            } catch (\Throwable $e) {
-                $this->warn("  ⚠️  No se pudo guardar el body: " . $e->getMessage());
-                // Crear registro básico sin body
-                SubscriptionNotification::create([
-                    'subscription_id' => $subscription->id,
-                    'notification_type' => $type,
-                    'status' => 'sent',
-                    'scheduled_at' => now(),
-                    'sent_at' => now(),
-                    'recipient_email' => $subscription->customer_email,
-                    'recipient_name' => $subscription->customer_name,
-                    'metadata' => ['test' => true],
-                ]);
-            }
+            // Obtener el subject del mailable
+            $subject = $mailable->envelope()->subject;
+
+            // Enviar el email CON el pixel incluido
+            Mail::send([], [], function ($message) use ($subscription, $htmlBodyWithPixel, $subject) {
+                $message->to($subscription->customer_email, $subscription->customer_name)
+                    ->subject($subject)
+                    ->html($htmlBodyWithPixel);
+            });
+            $this->line("  📧 Email enviado");
+
+            // Guardar el HTML con pixel y marcar como enviado
+            $notification->update([
+                'body' => $htmlBodyWithPixel,
+                'status' => 'sent',
+                'sent_at' => now(),
+            ]);
 
             $typeLabel = match($type) {
                 'warning_5_days' => '⚠️  Aviso 5 días',
@@ -217,7 +207,9 @@ class TestSubscriptionNotifications extends Command
                 default => $type,
             };
 
+            $bodyLength = strlen($htmlBody);
             $this->line("  ✓ {$typeLabel} enviado a {$subscription->customer_email}");
+            $this->line("  📝 Body guardado: {$bodyLength} caracteres");
 
         } catch (\Throwable $e) {
             $this->error("  ✗ Error al enviar {$type}: " . $e->getMessage());
