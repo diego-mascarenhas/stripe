@@ -138,6 +138,46 @@ tail -f storage/logs/laravel.log | grep -E "Copia enviada|No se pudo enviar copi
 
 3. **Subject modificado**: La copia al admin tiene `[COPIA]` al inicio y el nombre del cliente al final para fácil identificación.
 
+4. **🎯 Tracking inteligente**: Cuando abres el email desde el panel de admin (autenticado en `gestion.revisionalpha.com`), **NO se contabiliza como apertura**. Solo se cuentan las aperturas del cliente real.
+
+---
+
+## 🔍 Tracking Inteligente
+
+### Cómo Funciona
+
+El sistema detecta automáticamente si quien abre el email está autenticado en el panel de administración:
+
+```php
+// Si estás logueado en gestion.revisionalpha.com
+if (auth()->check()) {
+    // NO registra apertura
+    // Solo retorna el pixel sin actualizar estadísticas
+}
+```
+
+### Escenarios
+
+| Escenario | ¿Se Registra Apertura? | Explicación |
+|-----------|------------------------|-------------|
+| Cliente abre el email | ✅ **SÍ** | Es quien debe verlo |
+| Tú abres desde Gmail/Outlook (tu email personal) | ✅ **SÍ** | No estás autenticado en el panel |
+| Tú abres desde `gestion.revisionalpha.com/admin/...` | ❌ **NO** | Estás autenticado = vista previa admin |
+
+### Logs
+
+```bash
+# Cliente abre email (NO autenticado)
+[2026-01-11 10:00:00] Tracking: token recibido
+[2026-01-11 10:00:00] Tracking: notificación encontrada (id: 123)
+[2026-01-11 10:00:00] Tracking: apertura registrada
+
+# Admin abre desde panel (autenticado)
+[2026-01-11 10:05:00] Tracking: token recibido
+[2026-01-11 10:05:00] Tracking: apertura ignorada (usuario autenticado)
+                      user_id: 1, user_email: admin@revisionalpha.com
+```
+
 ---
 
 ## 🔄 Flujo Completo
