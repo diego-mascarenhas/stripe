@@ -245,12 +245,33 @@ class SendSubscriptionNotifications extends Command
                     // Obtener el subject del mailable
                     $subject = $mailable->envelope()->subject;
 
-                    // Enviar el email CON el pixel incluido
+                    // Enviar el email CON el pixel incluido al cliente
                     Mail::send([], [], function ($message) use ($notification, $htmlBodyWithPixel, $subject) {
                         $message->to($notification->recipient_email, $notification->recipient_name)
                             ->subject($subject)
                             ->html($htmlBodyWithPixel);
                     });
+
+                    // 📧 Si es una suspensión, enviar copia al admin SIN tracking
+                    if ($notification->notification_type === 'suspended') {
+                        $adminEmail = config('mail.from.address');
+                        $adminName = config('mail.from.name', 'Admin');
+
+                        if (filled($adminEmail)) {
+                            try {
+                                // Enviar copia SIN el pixel de tracking (HTML original)
+                                Mail::send([], [], function ($message) use ($htmlBody, $subject, $adminEmail, $adminName, $notification) {
+                                    $message->to($adminEmail, $adminName)
+                                        ->subject("[COPIA] {$subject} - {$notification->recipient_name}")
+                                        ->html($htmlBody); // Sin tracking pixel
+                                });
+
+                                $this->line("    ↳ Copia enviada a admin: {$adminEmail}");
+                            } catch (\Throwable $e) {
+                                $this->warn("    ⚠️  No se pudo enviar copia a admin: {$e->getMessage()}");
+                            }
+                        }
+                    }
 
                     // Guardar el HTML con pixel y marcar como enviado
                     $notification->update([

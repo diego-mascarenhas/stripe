@@ -205,6 +205,25 @@ class ForceSuspendSubscription extends Command
                 $mailable = new SubscriptionSuspendedMail($subscription);
                 Mail::to($subscription->customer_email)->send($mailable);
 
+                // 📧 Enviar copia al admin SIN tracking
+                $adminEmail = config('mail.from.address');
+                if (filled($adminEmail)) {
+                    try {
+                        $htmlBody = $mailable->render();
+                        $subject = $mailable->envelope()->subject;
+                        
+                        Mail::send([], [], function ($message) use ($htmlBody, $subject, $adminEmail, $subscription) {
+                            $message->to($adminEmail)
+                                ->subject("[COPIA] {$subject} - {$subscription->customer_name}")
+                                ->html($htmlBody); // Sin tracking pixel
+                        });
+                        
+                        $this->line("   ↳ Copia enviada a admin: {$adminEmail}");
+                    } catch (\Throwable $e) {
+                        $this->warn("   ⚠️  No se pudo enviar copia a admin: {$e->getMessage()}");
+                    }
+                }
+
                 // Marcar como enviado
                 $notification->markAsSent();
 
