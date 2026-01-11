@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 class ForceSuspendSubscription extends Command
 {
-    protected $signature = 'subscription:force-suspend {id} {--skip-email : Skip sending the email notification}';
+    protected $signature = 'subscription:force-suspend {id} {--skip-email : Skip sending the email notification} {--skip-checks : Skip safety checks (dangerous!)}';
     protected $description = 'Force suspend a subscription (for testing purposes). ID can be subscription ID or Stripe customer ID';
 
     public function handle(): int
@@ -47,6 +47,57 @@ class ForceSuspendSubscription extends Command
         $this->line("  Status: {$subscription->status}");
         $this->line("  Stripe ID: {$subscription->stripe_id}");
         $this->newLine();
+
+        // 🛡️ SAFETY CHECKS (unless explicitly skipped)
+        if (!$this->option('skip-checks')) {
+            $this->info('🛡️  Running safety checks...');
+            
+            // Sincronizar facturas primero
+            $this->line('   Syncing invoices from Stripe...');
+            $this->call('invoices:sync', [], 'null');
+            
+            // Verificar facturas impagas
+            $unpaidInvoices = \App\Models\Invoice::where('stripe_subscription_id', $subscription->stripe_id)
+                ->where('status', 'open')
+                ->where('paid', false)
+                ->whereNotNull('invoice_created_at')
+                ->orderBy('invoice_created_at', 'asc')
+                ->get();
+
+            $this->line("   Unpaid invoices: {$unpaidInvoices->count()}");
+
+            if ($unpaidInvoices->isEmpty()) {
+                $this->newLine();
+                $this->error('⚠️  WARNING: This subscription has NO unpaid invoices!');
+                $this->warn('   The customer is up to date with payments.');
+                $this->warn('   Suspending this subscription may be incorrect.');
+                $this->newLine();
+
+                if (!$this->confirm('Are you SURE you want to suspend a subscription with no unpaid invoices?', false)) {
+                    $this->info('Cancelled - Good decision!');
+                    return self::SUCCESS;
+                }
+            } else {
+                // Tiene facturas impagas - mostrar info
+                $oldestInvoice = $unpaidInvoices->first();
+                $daysOld = $oldestInvoice->invoice_created_at->diffInDays(now());
+                
+                $this->line("   Unpaid invoices: {$unpaidInvoices->count()}");
+                $this->line("   Oldest unpaid invoice: {$oldestInvoice->number}");
+                $this->line("   Created: {$oldestInvoice->invoice_created_at->format('Y-m-d')} ({$daysOld} days ago)");
+                
+                if ($daysOld >= 45) {
+                    $this->line('   ✅ Meets automatic suspension criteria (45+ days)');
+                } else {
+                    $this->warn("   ⚠️  Does NOT meet automatic suspension criteria yet ({$daysOld}/45 days)");
+                }
+            }
+
+            $this->newLine();
+        } else {
+            $this->warn('⚠️  Safety checks SKIPPED (--skip-checks flag)');
+            $this->newLine();
+        }
 
         if (!$this->confirm('Do you want to proceed with suspension?', true)) {
             $this->info('Cancelled');
