@@ -251,6 +251,36 @@ class ViewSubscription extends ViewRecord
     {
         return $schema
             ->schema([
+                // Servicio principal y categoría
+                Section::make($this->record->plan_name ?? 'Suscripción')
+                    ->columnSpan('full')
+                    ->schema([
+                        TextEntry::make('data.category')
+                            ->label('')
+                            ->badge()
+                            ->formatStateUsing(fn (?string $state): string => match ($state) {
+                                'hosting' => 'Hosting',
+                                'web_cloud' => 'Web Cloud',
+                                'vps' => 'VPS',
+                                'domain' => 'Dominio',
+                                'backups' => 'Backups',
+                                'mailer' => 'Mailer',
+                                'whatsapp' => 'WhatsApp',
+                                null => '—',
+                                default => ucfirst(str_replace('_', ' ', $state)),
+                            })
+                            ->color(fn (?string $state): string => match ($state) {
+                                'hosting' => 'success',
+                                'web_cloud' => 'info',
+                                'vps' => 'warning',
+                                'domain' => 'primary',
+                                'backups' => 'gray',
+                                'mailer' => 'danger',
+                                'whatsapp' => 'success',
+                                default => 'gray',
+                            }),
+                    ]),
+
                 Grid::make(2)
                     ->columnSpan('full')
                     ->schema([
@@ -300,62 +330,7 @@ class ViewSubscription extends ViewRecord
                                     ->fontFamily('mono'),
                             ])
                             ->columns(2),
-                        Section::make('Servicios')
-                            ->description(fn () => count($this->getSubscriptionItems()) . ' activos')
-                            ->schema([
-                                RepeatableEntry::make('subscription_items')
-                                    ->label('')
-                                    ->state(fn () => $this->getSubscriptionItems())
-                                    ->schema([
-                                        TextEntry::make('name')
-                                            ->label('Servicio')
-                                            ->weight('medium'),
-                                        TextEntry::make('type')
-                                            ->label('Tipo')
-                                            ->badge()
-                                            ->color(fn (?string $state): string => match ($state) {
-                                                'hosting' => 'success',
-                                                'web_cloud' => 'info',
-                                                'vps' => 'warning',
-                                                'domain' => 'primary',
-                                                'backups' => 'gray',
-                                                'mailer' => 'danger',
-                                                'whatsapp' => 'success',
-                                                default => 'gray',
-                                            })
-                                            ->formatStateUsing(fn (?string $state): string => match ($state) {
-                                                'hosting' => 'Hosting',
-                                                'web_cloud' => 'Web Cloud',
-                                                'vps' => 'VPS',
-                                                'domain' => 'Domain',
-                                                'backups' => 'Backups',
-                                                'mailer' => 'Mailer',
-                                                'whatsapp' => 'WhatsApp',
-                                                null => '—',
-                                                default => ucfirst(str_replace('_', ' ', $state)),
-                                            }),
-                                        TextEntry::make('quantity')
-                                            ->label('Cantidad')
-                                            ->default(1),
-                                        TextEntry::make('unit_amount')
-                                            ->label('Precio Unit.')
-                                            ->formatStateUsing(fn ($state, $record): string =>
-                                                $state ? number_format($state, 2, ',', '.') . ' ' . ($record['currency'] ?? 'ARS') : '—'
-                                            ),
-                                        TextEntry::make('interval')
-                                            ->label('Frecuencia')
-                                            ->formatStateUsing(function ($state, $record): string {
-                                                if ($state) {
-                                                    $count = $record['interval_count'] ?? 1;
-                                                    return $count > 1 ? "Cada $count $state" : ucfirst($state);
-                                                }
-                                                return '—';
-                                            }),
-                                    ])
-                                    ->columns(5)
-                                    ->contained(false),
-                            ])
-                            ->visible(fn () => ! empty($this->getSubscriptionItems())),
+
                         Section::make('Importe')
                             ->schema([
                                 TextEntry::make('amount_total')
@@ -374,9 +349,32 @@ class ViewSubscription extends ViewRecord
                                     ->size('lg')
                                     ->weight('bold')
                                     ->formatStateUsing(fn (?float $state): string => $state ? number_format($state, 2, ',', '.') . ' EUR' : '—'),
-                                TextEntry::make('current_period_end')
-                                    ->label('Próxima renovación')
-                                    ->date('d/m/Y'),
+                                Grid::make(2)
+                                    ->schema([
+                                        TextEntry::make('plan_interval')
+                                            ->label('Frecuencia')
+                                            ->formatStateUsing(function () {
+                                                $interval = $this->record->plan_interval;
+                                                $count = $this->record->plan_interval_count ?? 1;
+
+                                                if (!$interval) {
+                                                    return '—';
+                                                }
+
+                                                return match($interval) {
+                                                    'month' => $count > 1 ? "Cada $count meses" : 'Mensual',
+                                                    'year' => $count > 1 ? "Cada $count años" : 'Anual',
+                                                    'week' => $count > 1 ? "Cada $count semanas" : 'Semanal',
+                                                    'day' => $count > 1 ? "Cada $count días" : 'Diario',
+                                                    default => ucfirst($interval),
+                                                };
+                                            })
+                                            ->badge()
+                                            ->color('primary'),
+                                        TextEntry::make('current_period_end')
+                                            ->label('Próxima renovación')
+                                            ->date('d/m/Y'),
+                                    ]),
                             ])
                             ->columns(1),
                         Section::make('Métodos de Pago')

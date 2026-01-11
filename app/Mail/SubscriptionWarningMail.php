@@ -44,6 +44,9 @@ class SubscriptionWarningMail extends Mailable
         // Obtener la última factura pendiente de Stripe
         $paymentUrl = $this->getPaymentUrl();
 
+        // Obtener la fecha de vencimiento de la factura más antigua impaga
+        $dueDate = $this->getOldestInvoiceDueDate();
+
         return new Content(
             markdown: 'emails.subscriptions.warning',
             with: [
@@ -51,7 +54,7 @@ class SubscriptionWarningMail extends Mailable
                 'daysRemaining' => $this->daysRemaining,
                 'serviceName' => $this->subscription->plan_name,
                 'amount' => number_format($this->subscription->amount_total, 2) . ' ' . strtoupper($this->subscription->price_currency),
-                'dueDate' => $this->subscription->current_period_end?->format('d/m/Y'),
+                'dueDate' => $dueDate,
                 'paymentUrl' => $paymentUrl,
             ],
         );
@@ -119,6 +122,27 @@ class SubscriptionWarningMail extends Mailable
             ]);
             return 'https://revisionalpha.com/login';
         }
+    }
+
+    /**
+     * Get the due date from the oldest unpaid invoice
+     */
+    private function getOldestInvoiceDueDate(): string
+    {
+        // Buscar la factura impaga más antigua en la BD local
+        $oldestInvoice = \App\Models\Invoice::where('stripe_subscription_id', $this->subscription->stripe_id)
+            ->where('status', 'open')
+            ->where('paid', false)
+            ->whereNotNull('invoice_due_date')
+            ->orderBy('invoice_created_at', 'asc')
+            ->first();
+
+        if ($oldestInvoice && $oldestInvoice->invoice_due_date) {
+            return $oldestInvoice->invoice_due_date->format('d/m/Y');
+        }
+
+        // Fallback: usar current_period_end de la suscripción
+        return $this->subscription->current_period_end?->format('d/m/Y') ?? 'No disponible';
     }
 
     /**
