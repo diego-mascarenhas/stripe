@@ -20,6 +20,22 @@ Route::get('/track/{token}', function ($token) {
     \Log::info('Tracking: token recibido', ['token' => $token]);
     
     try {
+        // 🛡️ NO registrar apertura si es el admin viendo desde el panel
+        if (auth()->check()) {
+            \Log::info('Tracking: apertura ignorada (usuario autenticado)', [
+                'token' => substr($token, 0, 10) . '...',
+                'user_id' => auth()->id(),
+                'user_email' => auth()->user()->email ?? 'N/A',
+            ]);
+            
+            // Retornar pixel sin registrar apertura
+            return response(base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'))
+                ->header('Content-Type', 'image/gif')
+                ->header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                ->header('Pragma', 'no-cache')
+                ->header('Expires', '0');
+        }
+        
         // Buscar notificación por token
         $notification = \App\Models\SubscriptionNotification::all()->first(function ($n) use ($token) {
             return hash_equals($n->getTrackingToken(), $token);

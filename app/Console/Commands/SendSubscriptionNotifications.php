@@ -19,6 +19,12 @@ class SendSubscriptionNotifications extends Command
     {
         $this->info('Iniciando envío de notificaciones...');
 
+        // 🔄 IMPORTANTE: Sincronizar facturas ANTES de procesar notificaciones
+        // para asegurarnos de tener el estado más actualizado desde Stripe
+        $this->info('🔄 Sincronizando facturas desde Stripe...');
+        $this->call('invoices:sync');
+        $this->newLine();
+
         $this->scheduleWarningNotifications();
         $this->sendPendingNotifications();
 
@@ -27,16 +33,18 @@ class SendSubscriptionNotifications extends Command
     }
 
     /**
-     * Programa notificaciones de advertencia para suscripciones con 2 facturas impagas
+     * Programa notificaciones de advertencia y suspensiones automáticas
+     * basándose en los días transcurridos de la factura más antigua
      *
-     * Lógica:
-     * - Cliente puede tener hasta 2 facturas impagas
-     * - Los avisos se envían solo cuando tiene 2 facturas impagas
+     * Timeline:
      * - Día 0: Factura generada
      * - Día 10: Factura vence
-     * - Día 40 (30 días post-vencimiento de la más antigua): Aviso "Faltan 5 días para suspender"
-     * - Día 43 (33 días post-vencimiento de la más antigua): Aviso "Faltan 2 días para suspender"
-     * - Día 45 (35 días post-vencimiento de la más antigua): Suspensión automática
+     * - Día 40-42: Aviso "Faltan 5 días para suspender"
+     * - Día 43-44: Aviso "Faltan 2 días para suspender"
+     * - Día 45+: Suspensión automática (si auto_suspend = true)
+     *
+     * NOTA: La cantidad de facturas impagas NO importa.
+     * Solo se evalúa el tiempo transcurrido de la factura más antigua.
      */
     private function scheduleWarningNotifications(): void
     {
@@ -57,8 +65,8 @@ class SendSubscriptionNotifications extends Command
                 ->whereNotNull('invoice_created_at')
                 ->count();
 
-            // Solo procesar si tiene exactamente 2 facturas impagas
-            if ($unpaidInvoicesCount < 2) {
+            // Si no tiene ninguna factura impaga, skip
+            if ($unpaidInvoicesCount === 0) {
                 continue;
             }
 
@@ -77,6 +85,10 @@ class SendSubscriptionNotifications extends Command
             // Calcular días desde la generación de la factura más antigua
             $daysSinceInvoiceCreated = $oldestUnpaidInvoice->invoice_created_at->diffInDays(now(), false);
 
+            // ═══════════════════════════════════════════════════════════════
+            // NOTIFICACIONES DE WARNING: Basadas en días de la factura más antigua
+            // ═══════════════════════════════════════════════════════════════
+
             // Aviso 1: A los 40 días de generada la factura (30 días post-vencimiento)
             if ($daysSinceInvoiceCreated >= 40 && $daysSinceInvoiceCreated < 43) {
                 if (! $this->notificationExists($subscription, 'warning_5_days', $oldestUnpaidInvoice->invoice_created_at)) {
@@ -90,7 +102,7 @@ class SendSubscriptionNotifications extends Command
                         'body' => '', // Se llenará al enviar
                     ]);
                     $scheduled++;
-                    $this->line("  → Programado aviso 5 días para {$subscription->customer_name} (2 facturas impagas, más antigua: {$oldestUnpaidInvoice->number})");
+                    $this->line("  → Programado aviso 5 días para {$subscription->customer_name} (factura: {$oldestUnpaidInvoice->number}, {$daysSinceInvoiceCreated} días)");
                 }
             }
 
@@ -107,17 +119,21 @@ class SendSubscriptionNotifications extends Command
                         'body' => '', // Se llenará al enviar
                     ]);
                     $scheduled++;
-                    $this->line("  → Programado aviso 2 días para {$subscription->customer_name} (2 facturas impagas, más antigua: {$oldestUnpaidInvoice->number})");
+                    $this->line("  → Programado aviso 2 días para {$subscription->customer_name} (factura: {$oldestUnpaidInvoice->number}, {$daysSinceInvoiceCreated} días)");
                 }
             }
 
-            // Suspensión automática: A los 45 días de generada la factura más antigua
+            // ═══════════════════════════════════════════════════════════════
+            // SUSPENSIÓN AUTOMÁTICA: Si tiene factura con 45+ días
+            // (independiente de la cantidad de facturas)
+            // ═══════════════════════════════════════════════════════════════
             if ($daysSinceInvoiceCreated >= 45) {
                 $autoSuspend = data_get($subscription->data, 'auto_suspend', false);
 
                 if ($autoSuspend && $subscription->status === 'active') {
                     $this->suspendSubscription($subscription, $unpaidInvoicesCount);
                     $scheduled++;
+                    $this->line("  → Suspendida {$subscription->customer_name} (factura más antigua: {$oldestUnpaidInvoice->number}, {$daysSinceInvoiceCreated} días)");
                 }
             }
         }
@@ -229,12 +245,33 @@ class SendSubscriptionNotifications extends Command
                     // Obtener el subject del mailable
                     $subject = $mailable->envelope()->subject;
 
-                    // Enviar el email CON el pixel incluido
+                    // Enviar el email CON el pixel incluido al cliente
                     Mail::send([], [], function ($message) use ($notification, $htmlBodyWithPixel, $subject) {
                         $message->to($notification->recipient_email, $notification->recipient_name)
                             ->subject($subject)
                             ->html($htmlBodyWithPixel);
                     });
+
+                    // 📧 Si es una suspensión, enviar copia al admin SIN tracking
+                    if ($notification->notification_type === 'suspended') {
+                        $adminEmail = config('mail.from.address');
+                        $adminName = config('mail.from.name', 'Admin');
+
+                        if (filled($adminEmail)) {
+                            try {
+                                // Enviar copia SIN el pixel de tracking (HTML original)
+                                Mail::send([], [], function ($message) use ($htmlBody, $subject, $adminEmail, $adminName, $notification) {
+                                    $message->to($adminEmail, $adminName)
+                                        ->subject("[COPIA] {$subject} - {$notification->recipient_name}")
+                                        ->html($htmlBody); // Sin tracking pixel
+                                });
+
+                                $this->line("    ↳ Copia enviada a admin: {$adminEmail}");
+                            } catch (\Throwable $e) {
+                                $this->warn("    ⚠️  No se pudo enviar copia a admin: {$e->getMessage()}");
+                            }
+                        }
+                    }
 
                     // Guardar el HTML con pixel y marcar como enviado
                     $notification->update([
