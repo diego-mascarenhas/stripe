@@ -15,8 +15,8 @@ class SubscriptionMetadataManager
     public static function schema(): array
     {
         return [
-            Select::make('type')
-                ->label('Tipo de servicio')
+            Select::make('category')
+                ->label('Categoría de servicio')
                 ->options([
                     'hosting' => 'Hosting',
                     'web_cloud' => 'Web Cloud',
@@ -65,7 +65,7 @@ class SubscriptionMetadataManager
         $data = $subscription->data ?? [];
 
         return [
-            'type' => $data['type'] ?? null,
+            'category' => $data['category'] ?? $data['type'] ?? null, // Support both for reading old data
             'plan' => $data['plan'] ?? null,
             'server' => $data['server'] ?? null,
             'domain' => $data['domain'] ?? null,

@@ -709,9 +709,10 @@ class ViewSubscription extends ViewRecord
                     ->schema([
                         Grid::make(2)
                             ->schema([
-                                TextEntry::make('data.type')
-                                    ->label('Tipo de servicio')
+                                TextEntry::make('data.category')
+                                    ->label('Categoría de servicio')
                                     ->badge()
+                                    ->state(fn () => data_get($this->record->data, 'category') ?? data_get($this->record->data, 'type'))
                                     ->formatStateUsing(fn (?string $state): string => match ($state) {
                                         'hosting' => 'Hosting',
                                         'web_cloud' => 'Web Cloud',
@@ -732,7 +733,7 @@ class ViewSubscription extends ViewRecord
                                         'whatsapp' => 'success',
                                         default => 'gray',
                                     })
-                                    ->visible(fn () => filled(data_get($this->record->data, 'type'))),
+                                    ->visible(fn () => filled(data_get($this->record->data, 'category')) || filled(data_get($this->record->data, 'type'))),
                                 TextEntry::make('whm_plan')
                                     ->label('Plan')
                                     ->badge()
@@ -864,10 +865,14 @@ class ViewSubscription extends ViewRecord
         // If this is a manual purchase (type 'buy'), get type from data field
         $serviceType = null;
         if ($this->record?->type === 'buy') {
-            $serviceType = data_get($this->record->data, 'type');
+            $serviceType = data_get($this->record->data, 'category') ?? data_get($this->record->data, 'type');
         } else {
             // For Stripe subscriptions, try to get from customer metadata
-            $serviceType = data_get($this->stripeCustomer, 'metadata.type');
+            // Try 'category' first, fallback to 'type' for backwards compatibility
+            $serviceType = data_get($this->stripeCustomer, 'metadata.category')
+                ?? data_get($this->stripeCustomer, 'metadata.type')
+                ?? data_get($this->record->data, 'category')
+                ?? data_get($this->record->data, 'type');
         }
 
         return collect($items)

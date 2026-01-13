@@ -120,7 +120,11 @@ class SyncStripeSubscriptions
         $metadata = Arr::get($payload, 'metadata', []);
 
         // Filter metadata to only include predefined fields
+        // Support both 'category' (new) and 'type' (legacy) for reading, but save as 'category'
+        $category = Arr::get($metadata, 'category') ?? Arr::get($metadata, 'type');
+
         $filteredMetadata = array_filter([
+            'category' => $category,
             'server' => Arr::get($metadata, 'server'),
             'domain' => Arr::get($metadata, 'domain'),
             'user' => Arr::get($metadata, 'user'),
