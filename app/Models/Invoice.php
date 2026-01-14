@@ -2,12 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Arr;
 
 class Invoice extends Model
 {
+    /**
+     * Scope to exclude draft invoices
+     */
+    public function scopeExcludeDrafts(Builder $query): Builder
+    {
+        return $query->where('status', '!=', 'draft');
+    }
     protected $fillable = [
         'stripe_id',
         'stripe_subscription_id',

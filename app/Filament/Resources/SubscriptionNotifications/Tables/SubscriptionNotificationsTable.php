@@ -6,6 +6,7 @@ use App\Models\SubscriptionNotification;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class SubscriptionNotificationsTable
@@ -88,7 +89,16 @@ class SubscriptionNotificationsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('notification_type')
+                    ->label('Tipo')
+                    ->options([
+                        'warning_5_days' => 'Aviso 5 días',
+                        'warning_2_days' => 'Aviso 2 días',
+                        'suspended' => 'Suspendido',
+                        'reactivated' => 'Reactivado',
+                    ])
+                    ->multiple()
+                    ->placeholder('Todos los tipos'),
             ])
             ->actions([
                 Action::make('view')
