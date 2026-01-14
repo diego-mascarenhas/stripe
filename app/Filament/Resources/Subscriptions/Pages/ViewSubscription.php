@@ -143,24 +143,24 @@ class ViewSubscription extends ViewRecord
 
             $whm = app(\App\Services\WHM\WHMServerManager::class);
 
-            // Cargar estado de la cuenta
+            // Load account status
             $this->whmStatus = $whm->getAccountStatus($server, $user);
             Log::info('WHM status loaded', ['status' => $this->whmStatus]);
 
-            // Cargar plan de la cuenta
+            // Load account package/plan
             $whmPlan = $whm->getAccountPackage($server, $user);
             if ($whmPlan && $whmPlan !== data_get($this->record->data, 'plan')) {
                 Log::info('WHM plan differs from stored plan', [
                     'whm_plan' => $whmPlan,
                     'stored_plan' => data_get($this->record->data, 'plan'),
                 ]);
-                // Actualizar el plan en data si es diferente
+                // Update plan in data if different
                 $data = $this->record->data ?? [];
                 $data['plan'] = $whmPlan;
                 $this->record->update(['data' => $data]);
             }
 
-            // Cargar validación DNS si hay dominio
+            // Load DNS validation if domain exists
             if ($domain) {
                 $dnsService = app(\App\Services\DNS\DNSLookupService::class);
                 $this->dnsValidation = $dnsService->validateRevisionAlphaConfiguration($domain);
@@ -195,7 +195,7 @@ class ViewSubscription extends ViewRecord
                 ->color('gray')
                 ->action(function () {
                     try {
-                        // 1. Sincronizar con Stripe API (traer datos actualizados)
+                        // 1. Sync with Stripe API (fetch updated data)
                         $stripe = app(\Stripe\StripeClient::class);
                         $stripeSubscription = $stripe->subscriptions->retrieve($this->record->stripe_id, [
                             'expand' => ['customer', 'latest_invoice', 'default_payment_method'],
@@ -206,7 +206,7 @@ class ViewSubscription extends ViewRecord
                         $price = \Illuminate\Support\Arr::get($item, 'price', []);
                         $metadata = \Illuminate\Support\Arr::get($payload, 'metadata', []);
 
-                        // 2. Actualizar campos clave desde Stripe
+                        // 2. Update key fields from Stripe
                         $updates = [
                             'status' => \Illuminate\Support\Arr::get($payload, 'status'),
                             'customer_email' => \Illuminate\Support\Arr::get($payload, 'customer.email'),
@@ -224,7 +224,7 @@ class ViewSubscription extends ViewRecord
                             'last_synced_at' => now(),
                         ];
 
-                        // Actualizar metadata preservando datos locales
+                        // Update metadata preserving local data
                         if (!empty($metadata)) {
                             $category = \Illuminate\Support\Arr::get($metadata, 'category')
                                 ?? \Illuminate\Support\Arr::get($metadata, 'type');
@@ -244,7 +244,7 @@ class ViewSubscription extends ViewRecord
 
                         $this->record->update(array_filter($updates, fn ($value) => $value !== null));
 
-                        // 3. Recargar datos de la vista
+                        // 3. Reload view data
                         $this->record->refresh();
                         $this->loadStripeData();
                         $this->loadWHMData();
@@ -319,7 +319,7 @@ class ViewSubscription extends ViewRecord
     {
         return $schema
             ->schema([
-                // Servicio principal y categoría
+                // Main service and category
                 Section::make($this->record->plan_name ?? 'Suscripción')
                     ->columnSpan('full')
                     ->schema([
@@ -580,7 +580,7 @@ class ViewSubscription extends ViewRecord
                             ->fillForm(function (): array {
                                 $data = \App\Support\Subscriptions\SubscriptionMetadataManager::fillForm($this->record);
 
-                                // Cargar plan desde WHM si hay server y user
+                                // Load plan from WHM if server and user exist
                                 if (!empty($data['server']) && !empty($data['user'])) {
                                     try {
                                         $whmPlan = app(\App\Services\WHM\WHMServerManager::class)
@@ -646,7 +646,7 @@ class ViewSubscription extends ViewRecord
                                         ->success()
                                         ->send();
 
-                                    // Refrescar la página para mostrar los nuevos datos
+                                    // Refresh page to show new data
                                     redirect()->to(SubscriptionResource::getUrl('view', ['record' => $this->record]));
                                 } catch (\Throwable $exception) {
                                     Notification::make()
@@ -715,7 +715,7 @@ class ViewSubscription extends ViewRecord
                                     app(\App\Services\WHM\WHMServerManager::class)
                                         ->suspendAccount($server, $user, 'Suspendido manualmente desde el panel');
 
-                                    // Recargar datos de WHM
+                                    // Reload WHM data
                                     $this->loadWHMData();
 
                                     Notification::make()
@@ -757,7 +757,7 @@ class ViewSubscription extends ViewRecord
                                     app(\App\Services\WHM\WHMServerManager::class)
                                         ->unsuspendAccount($server, $user);
 
-                                    // Recargar datos de WHM
+                                    // Reload WHM data
                                     $this->loadWHMData();
 
                                     Notification::make()
