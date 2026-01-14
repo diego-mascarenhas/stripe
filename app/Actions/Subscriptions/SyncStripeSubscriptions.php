@@ -36,7 +36,7 @@ class SyncStripeSubscriptions
             $subscription = Subscription::firstWhere('stripe_id', $mapped['stripe_id']);
 
             if ($subscription) {
-                // PROTECCIÓN: No actualizar suscripciones de tipo 'buy' (son manuales)
+                // PROTECTION: Do not update subscriptions of type 'buy' (they are manual)
                 if ($subscription->type === 'buy') {
                     continue;
                 }
@@ -62,6 +62,27 @@ class SyncStripeSubscriptions
 
     private function updateSubscription(Subscription $subscription, array $payload): void
     {
+        // Preserve local metadata that doesn't come from Stripe (plan, whm_status, etc.)
+        if (!empty($subscription->data) && isset($payload['data'])) {
+            // Merge: Stripe metadata updates, but we preserve local fields that are not in Stripe
+            $localData = $subscription->data;
+            $stripeData = $payload['data'] ?? [];
+
+            // Fields that should only come from local sources (not from Stripe)
+            $localOnlyFields = ['plan', 'whm_status', 'disk_used', 'disk_limit', 'dns_has_own_ns',
+                               'dns_domain_points_to_service', 'dns_mail_points_to_service',
+                               'dns_has_spf_include', 'dns_current_ns', 'dns_current_ips', 'dns_last_check'];
+
+            // Preserve local fields that are not in Stripe
+            foreach ($localOnlyFields as $field) {
+                if (isset($localData[$field]) && !isset($stripeData[$field])) {
+                    $stripeData[$field] = $localData[$field];
+                }
+            }
+
+            $payload['data'] = $stripeData;
+        }
+
         $subscription->fill($payload + ['last_synced_at' => now()]);
         $dirty = $subscription->getDirty();
 
@@ -120,11 +141,16 @@ class SyncStripeSubscriptions
         $metadata = Arr::get($payload, 'metadata', []);
 
         // Filter metadata to only include predefined fields
+        // Support both 'category' (new) and 'type' (legacy) for reading, but save as 'category'
+        $category = Arr::get($metadata, 'category') ?? Arr::get($metadata, 'type');
+
         $filteredMetadata = array_filter([
+            'category' => $category,
             'server' => Arr::get($metadata, 'server'),
             'domain' => Arr::get($metadata, 'domain'),
             'user' => Arr::get($metadata, 'user'),
             'email' => Arr::get($metadata, 'email'),
+            'auto_suspend' => Arr::get($metadata, 'auto_suspend'),
         ], fn ($value) => $value !== null && $value !== '');
 
         return [
