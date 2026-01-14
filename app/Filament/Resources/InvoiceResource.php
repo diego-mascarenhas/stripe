@@ -33,7 +33,7 @@ class InvoiceResource extends Resource
     {
         return $table
             ->defaultSort('invoice_created_at', 'desc')
-            ->modifyQueryUsing(fn ($query) => $query->where('status', '!=', 'draft'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->excludeDrafts())
             ->persistSearchInSession()
             ->persistFiltersInSession()
             ->columns([
