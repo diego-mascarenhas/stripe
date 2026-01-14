@@ -15,6 +15,7 @@ use Filament\Schemas\Schema;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use Stripe\StripeClient;
@@ -101,7 +102,7 @@ class ViewSubscription extends ViewRecord
                 })
                 ->all();
             } catch (\Throwable $invoiceException) {
-                \Log::warning('Could not load invoices from Stripe API', [
+                Log::warning('Could not load invoices from Stripe API', [
                     'subscription_stripe_id' => $this->record->stripe_id,
                     'error' => $invoiceException->getMessage(),
                 ]);
@@ -124,7 +125,7 @@ class ViewSubscription extends ViewRecord
         $domain = data_get($this->record->data, 'domain');
 
         if (empty($server) || empty($user)) {
-            \Log::info('WHM data not loaded: missing server or user', [
+            Log::info('WHM data not loaded: missing server or user', [
                 'subscription_id' => $this->record->id,
                 'has_server' => !empty($server),
                 'has_user' => !empty($user),
@@ -133,7 +134,7 @@ class ViewSubscription extends ViewRecord
         }
 
         try {
-            \Log::info('Loading WHM data', [
+            Log::info('Loading WHM data', [
                 'subscription_id' => $this->record->id,
                 'server' => $server,
                 'user' => $user,
@@ -144,12 +145,12 @@ class ViewSubscription extends ViewRecord
 
             // Cargar estado de la cuenta
             $this->whmStatus = $whm->getAccountStatus($server, $user);
-            \Log::info('WHM status loaded', ['status' => $this->whmStatus]);
+            Log::info('WHM status loaded', ['status' => $this->whmStatus]);
 
             // Cargar plan de la cuenta
             $whmPlan = $whm->getAccountPackage($server, $user);
             if ($whmPlan && $whmPlan !== data_get($this->record->data, 'plan')) {
-                \Log::info('WHM plan differs from stored plan', [
+                Log::info('WHM plan differs from stored plan', [
                     'whm_plan' => $whmPlan,
                     'stored_plan' => data_get($this->record->data, 'plan'),
                 ]);
@@ -163,7 +164,7 @@ class ViewSubscription extends ViewRecord
             if ($domain) {
                 $dnsService = app(\App\Services\DNS\DNSLookupService::class);
                 $this->dnsValidation = $dnsService->validateRevisionAlphaConfiguration($domain);
-                \Log::info('DNS validation completed', [
+                Log::info('DNS validation completed', [
                     'domain' => $domain,
                     'has_own_ns' => $this->dnsValidation['has_own_ns'],
                     'domain_points_to_service' => $this->dnsValidation['domain_points_to_service'],
@@ -172,7 +173,7 @@ class ViewSubscription extends ViewRecord
                 ]);
             }
         } catch (\Throwable $exception) {
-            \Log::error('Failed to load WHM data', [
+            Log::error('Failed to load WHM data', [
                 'subscription_id' => $this->record->id,
                 'server' => $server,
                 'user' => $user,
@@ -193,12 +194,79 @@ class ViewSubscription extends ViewRecord
                 ->icon('heroicon-o-arrow-path')
                 ->color('gray')
                 ->action(function () {
-                    $this->loadStripeData();
+                    try {
+                        // 1. Sincronizar con Stripe API (traer datos actualizados)
+                        $stripe = app(\Stripe\StripeClient::class);
+                        $stripeSubscription = $stripe->subscriptions->retrieve($this->record->stripe_id, [
+                            'expand' => ['customer', 'latest_invoice', 'default_payment_method'],
+                        ]);
 
-                    Notification::make()
-                        ->title('Datos actualizados')
-                        ->success()
-                        ->send();
+                        $payload = $stripeSubscription->toArray();
+                        $item = \Illuminate\Support\Arr::get($payload, 'items.data.0', []);
+                        $price = \Illuminate\Support\Arr::get($item, 'price', []);
+                        $metadata = \Illuminate\Support\Arr::get($payload, 'metadata', []);
+
+                        // 2. Actualizar campos clave desde Stripe
+                        $updates = [
+                            'status' => \Illuminate\Support\Arr::get($payload, 'status'),
+                            'customer_email' => \Illuminate\Support\Arr::get($payload, 'customer.email'),
+                            'customer_name' => \Illuminate\Support\Arr::get($payload, 'customer.name'),
+                            'plan_name' => \Illuminate\Support\Arr::get($price, 'nickname')
+                                ?? \Illuminate\Support\Arr::get($price, 'product.name'),
+                            'current_period_start' => \Illuminate\Support\Arr::get($payload, 'current_period_start')
+                                ? \Carbon\Carbon::createFromTimestamp(\Illuminate\Support\Arr::get($payload, 'current_period_start'))
+                                : null,
+                            'current_period_end' => \Illuminate\Support\Arr::get($payload, 'current_period_end')
+                                ? \Carbon\Carbon::createFromTimestamp(\Illuminate\Support\Arr::get($payload, 'current_period_end'))
+                                : null,
+                            'cancel_at_period_end' => (bool) \Illuminate\Support\Arr::get($payload, 'cancel_at_period_end', false),
+                            'raw_payload' => $payload,
+                            'last_synced_at' => now(),
+                        ];
+
+                        // Actualizar metadata preservando datos locales
+                        if (!empty($metadata)) {
+                            $category = \Illuminate\Support\Arr::get($metadata, 'category')
+                                ?? \Illuminate\Support\Arr::get($metadata, 'type');
+
+                            $stripeMetadata = array_filter([
+                                'category' => $category,
+                                'server' => \Illuminate\Support\Arr::get($metadata, 'server'),
+                                'domain' => \Illuminate\Support\Arr::get($metadata, 'domain'),
+                                'user' => \Illuminate\Support\Arr::get($metadata, 'user'),
+                                'email' => \Illuminate\Support\Arr::get($metadata, 'email'),
+                                'auto_suspend' => \Illuminate\Support\Arr::get($metadata, 'auto_suspend'),
+                            ], fn ($value) => $value !== null && $value !== '');
+
+                            // Merge with existing data
+                            $updates['data'] = array_merge($this->record->data ?? [], $stripeMetadata);
+                        }
+
+                        $this->record->update(array_filter($updates, fn ($value) => $value !== null));
+
+                        // 3. Recargar datos de la vista
+                        $this->record->refresh();
+                        $this->loadStripeData();
+                        $this->loadWHMData();
+
+                        Notification::make()
+                            ->title('Suscripción sincronizada')
+                            ->body('Los datos se actualizaron correctamente desde Stripe.')
+                            ->success()
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Log::error('Error al actualizar desde Stripe', [
+                            'subscription_id' => $this->record->id,
+                            'stripe_id' => $this->record->stripe_id,
+                            'error' => $e->getMessage(),
+                        ]);
+
+                        Notification::make()
+                            ->title('Error al sincronizar')
+                            ->body('No se pudo actualizar desde Stripe: ' . $e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
                 }),
             Action::make('edit-buy')
                 ->label('Editar compra')
@@ -522,7 +590,7 @@ class ViewSubscription extends ViewRecord
                                             $data['plan'] = $whmPlan;
                                         }
                                     } catch (\Throwable $e) {
-                                        \Log::warning('Could not load WHM plan', [
+                                        Log::warning('Could not load WHM plan', [
                                             'server' => $data['server'],
                                             'user' => $data['user'],
                                             'error' => $e->getMessage(),
@@ -544,13 +612,13 @@ class ViewSubscription extends ViewRecord
                                             app(\App\Services\WHM\WHMServerManager::class)
                                                 ->updateContactEmail($data['server'], $data['user'], $data['email']);
 
-                                            \Log::info('Contact email synced with WHM', [
+                                            Log::info('Contact email synced with WHM', [
                                                 'server' => $data['server'],
                                                 'user' => $data['user'],
                                                 'email' => $data['email'],
                                             ]);
                                         } catch (\Throwable $whmException) {
-                                            \Log::warning('Failed to sync email with WHM', [
+                                            Log::warning('Failed to sync email with WHM', [
                                                 'server' => $data['server'],
                                                 'user' => $data['user'],
                                                 'email' => $data['email'],
