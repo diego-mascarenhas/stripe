@@ -4,13 +4,17 @@ namespace App\Filament\Resources\InvoiceResource\Pages;
 
 use App\Actions\Invoices\SyncStripeInvoices;
 use App\Filament\Resources\InvoiceResource;
-use App\Models\Invoice;
+use App\Jobs\GenerateInvoicesZipJob;
 use App\Models\ExchangeRate;
+use App\Models\Invoice;
 use App\Services\Currency\CurrencyConversionService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ListInvoices extends ListRecords
@@ -24,6 +28,11 @@ class ListInvoices extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        $quarterRange = $this->getPreviousQuarterRange();
+        $fileName = "facturas-Q{$quarterRange['quarter']}-{$quarterRange['year']}.zip";
+        $zipExists = Storage::disk('public')->exists('invoices-zip/'.$fileName);
+        $useQueue = config('queue.default') !== 'sync';
+
         return [
             Action::make('sync')
                 ->label('Sincronizar con Stripe')
@@ -47,6 +56,32 @@ class ListInvoices extends ListRecords
                             ->send();
                     }
                 }),
+            Action::make('generate-previous-quarter')
+                ->label($zipExists ? 'Regenerar ZIP Trimestre Anterior' : 'Generar ZIP Trimestre Anterior')
+                ->icon('heroicon-o-archive-box-arrow-down')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('Generar ZIP de facturas')
+                ->modalDescription(function () use ($quarterRange, $zipExists, $useQueue) {
+                    $message = "Se generará un archivo ZIP con todas las facturas entre {$quarterRange['start']->format('d/m/Y')} y {$quarterRange['end']->format('d/m/Y')}.";
+                    if ($zipExists) {
+                        $message .= "\n\nYa existe un archivo ZIP. Si continúas, se regenerará.";
+                    }
+                    if ($useQueue) {
+                        $message .= "\n\nEl proceso se ejecutará en segundo plano. Recarga la página en unos minutos para ver el botón de descarga.";
+                    } else {
+                        $message .= "\n\nNOTA: El proceso puede tardar varios minutos. No cierres esta ventana.";
+                    }
+
+                    return $message;
+                })
+                ->action(fn () => $this->generatePreviousQuarterZip()),
+            Action::make('download-previous-quarter-zip')
+                ->label('Descargar ZIP Trimestre Anterior')
+                ->icon('heroicon-o-arrow-down-circle')
+                ->color('info')
+                ->visible($zipExists)
+                ->action(fn () => $this->downloadGeneratedZip($fileName)),
             Action::make('download-csv')
                 ->label('Descargar CSV')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -307,6 +342,121 @@ class ListInvoices extends ListRecords
         }
 
         return $query;
+    }
+
+    protected function getPreviousQuarterRange(): array
+    {
+        $now = now();
+        $currentQuarter = (int) ceil($now->month / 3);
+        $previousQuarter = $currentQuarter - 1;
+        $year = $now->year;
+
+        if ($previousQuarter < 1) {
+            $previousQuarter = 4;
+            $year--;
+        }
+
+        $startMonth = ($previousQuarter - 1) * 3 + 1;
+        $endMonth = $startMonth + 2;
+
+        $start = now()->setYear($year)->setMonth($startMonth)->startOfMonth();
+        $end = now()->setYear($year)->setMonth($endMonth)->endOfMonth();
+
+        return [
+            'start' => $start,
+            'end' => $end,
+            'quarter' => $previousQuarter,
+            'year' => $year,
+        ];
+    }
+
+    protected function generatePreviousQuarterZip(): void
+    {
+        $quarterRange = $this->getPreviousQuarterRange();
+        $quarter = $quarterRange['quarter'];
+        $year = $quarterRange['year'];
+        $fileName = "facturas-Q{$quarter}-{$year}.zip";
+
+        // Verificar si hay facturas
+        $count = Invoice::where('status', '!=', 'draft')
+            ->whereBetween('invoice_created_at', [$quarterRange['start'], $quarterRange['end']])
+            ->count();
+
+        if ($count === 0) {
+            Notification::make()
+                ->title('Sin facturas')
+                ->body("No se encontraron facturas para el trimestre {$quarter}/{$year}.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $useQueue = config('queue.default') !== 'sync';
+
+        if ($useQueue) {
+            // Dispatch del Job en background
+            GenerateInvoicesZipJob::dispatch(
+                $quarterRange['start']->toDateTimeString(),
+                $quarterRange['end']->toDateTimeString(),
+                $quarter,
+                $year,
+                $fileName
+            );
+
+            Notification::make()
+                ->title('Generación iniciada')
+                ->body("El ZIP con {$count} facturas se está generando en segundo plano. Recarga la página en unos minutos para ver el botón de descarga.")
+                ->success()
+                ->duration(10000)
+                ->send();
+        } else {
+            // Ejecutar síncronamente con timeouts aumentados
+            set_time_limit(600); // 10 minutos
+            ini_set('max_execution_time', '600');
+
+            try {
+                $job = new GenerateInvoicesZipJob(
+                    $quarterRange['start']->toDateTimeString(),
+                    $quarterRange['end']->toDateTimeString(),
+                    $quarter,
+                    $year,
+                    $fileName
+                );
+
+                $job->handle();
+
+                Notification::make()
+                    ->title('ZIP generado correctamente')
+                    ->body("El ZIP con las facturas está listo para descargar. Recarga la página para ver el botón de descarga.")
+                    ->success()
+                    ->duration(10000)
+                    ->send();
+            } catch (\Throwable $exception) {
+                Notification::make()
+                    ->title('Error al generar ZIP')
+                    ->body($exception->getMessage())
+                    ->danger()
+                    ->send();
+            }
+        }
+    }
+
+    protected function downloadGeneratedZip(string $fileName): BinaryFileResponse
+    {
+        $zipPath = storage_path('app/public/invoices-zip/'.$fileName);
+
+        if (! file_exists($zipPath)) {
+            Notification::make()
+                ->title('Archivo no encontrado')
+                ->body('El archivo ZIP ya no existe o aún se está generando.')
+                ->warning()
+                ->send();
+
+            return response()->download($zipPath);
+        }
+
+        return response()->download($zipPath, $fileName);
     }
 }
 
