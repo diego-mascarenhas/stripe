@@ -4,11 +4,14 @@ namespace App\Filament\Resources\CreditNoteResource\Pages;
 
 use App\Actions\CreditNotes\SyncStripeCreditNotes;
 use App\Filament\Resources\CreditNoteResource;
+use App\Jobs\GenerateCreditNotesZipJob;
 use App\Models\CreditNote;
 use App\Models\ExchangeRate;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ListCreditNotes extends ListRecords
@@ -17,6 +20,11 @@ class ListCreditNotes extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        $quarterRange = $this->getPreviousQuarterRange();
+        $fileName = "notas-credito-Q{$quarterRange['quarter']}-{$quarterRange['year']}.zip";
+        $zipExists = Storage::disk('public')->exists('credit-notes-zip/'.$fileName);
+        $useQueue = config('queue.default') !== 'sync';
+
         return [
             Action::make('sync')
                 ->label('Sincronizar con Stripe')
@@ -40,6 +48,32 @@ class ListCreditNotes extends ListRecords
                             ->send();
                     }
                 }),
+            Action::make('generate-previous-quarter')
+                ->label($zipExists ? 'Regenerar ZIP Trimestre Anterior' : 'Generar ZIP Trimestre Anterior')
+                ->icon('heroicon-o-archive-box-arrow-down')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('Generar ZIP de notas de crédito')
+                ->modalDescription(function () use ($quarterRange, $zipExists, $useQueue) {
+                    $message = "Se generará un archivo ZIP con todas las notas de crédito entre {$quarterRange['start']->format('d/m/Y')} y {$quarterRange['end']->format('d/m/Y')}.";
+                    if ($zipExists) {
+                        $message .= "\n\nYa existe un archivo ZIP. Si continúas, se regenerará.";
+                    }
+                    if ($useQueue) {
+                        $message .= "\n\nEl proceso se ejecutará en segundo plano. Recarga la página en unos minutos para ver el botón de descarga.";
+                    } else {
+                        $message .= "\n\nNOTA: El proceso puede tardar varios minutos. No cierres esta ventana.";
+                    }
+
+                    return $message;
+                })
+                ->action(fn () => $this->generatePreviousQuarterZip()),
+            Action::make('download-previous-quarter-zip')
+                ->label('Descargar ZIP Trimestre Anterior')
+                ->icon('heroicon-o-arrow-down-circle')
+                ->color('info')
+                ->visible($zipExists)
+                ->action(fn () => $this->downloadGeneratedZip($fileName)),
             Action::make('download-csv')
                 ->label('Descargar CSV')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -302,6 +336,121 @@ class ListCreditNotes extends ListRecords
         }, $fileName, [
             'Content-Type' => 'text/csv; charset=utf-8',
         ]);
+    }
+
+    protected function getPreviousQuarterRange(): array
+    {
+        $now = now();
+        $currentQuarter = (int) ceil($now->month / 3);
+        $previousQuarter = $currentQuarter - 1;
+        $year = $now->year;
+
+        if ($previousQuarter < 1) {
+            $previousQuarter = 4;
+            $year--;
+        }
+
+        $startMonth = ($previousQuarter - 1) * 3 + 1;
+        $endMonth = $startMonth + 2;
+
+        $start = now()->setYear($year)->setMonth($startMonth)->startOfMonth();
+        $end = now()->setYear($year)->setMonth($endMonth)->endOfMonth();
+
+        return [
+            'start' => $start,
+            'end' => $end,
+            'quarter' => $previousQuarter,
+            'year' => $year,
+        ];
+    }
+
+    protected function generatePreviousQuarterZip(): void
+    {
+        $quarterRange = $this->getPreviousQuarterRange();
+        $quarter = $quarterRange['quarter'];
+        $year = $quarterRange['year'];
+        $fileName = "notas-credito-Q{$quarter}-{$year}.zip";
+
+        // Verificar si hay notas de crédito
+        $count = CreditNote::where('voided', false)
+            ->whereBetween('credit_note_created_at', [$quarterRange['start'], $quarterRange['end']])
+            ->count();
+
+        if ($count === 0) {
+            Notification::make()
+                ->title('Sin notas de crédito')
+                ->body("No se encontraron notas de crédito para el trimestre {$quarter}/{$year}.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $useQueue = config('queue.default') !== 'sync';
+
+        if ($useQueue) {
+            // Dispatch del Job en background
+            GenerateCreditNotesZipJob::dispatch(
+                $quarterRange['start']->toDateTimeString(),
+                $quarterRange['end']->toDateTimeString(),
+                $quarter,
+                $year,
+                $fileName
+            );
+
+            Notification::make()
+                ->title('Generación iniciada')
+                ->body("El ZIP con {$count} notas de crédito se está generando en segundo plano. Recarga la página en unos minutos para ver el botón de descarga.")
+                ->success()
+                ->duration(10000)
+                ->send();
+        } else {
+            // Ejecutar síncronamente con timeouts aumentados
+            set_time_limit(600); // 10 minutos
+            ini_set('max_execution_time', '600');
+
+            try {
+                $job = new GenerateCreditNotesZipJob(
+                    $quarterRange['start']->toDateTimeString(),
+                    $quarterRange['end']->toDateTimeString(),
+                    $quarter,
+                    $year,
+                    $fileName
+                );
+
+                $job->handle();
+
+                Notification::make()
+                    ->title('ZIP generado correctamente')
+                    ->body("El ZIP con las notas de crédito está listo para descargar. Recarga la página para ver el botón de descarga.")
+                    ->success()
+                    ->duration(10000)
+                    ->send();
+            } catch (\Throwable $exception) {
+                Notification::make()
+                    ->title('Error al generar ZIP')
+                    ->body($exception->getMessage())
+                    ->danger()
+                    ->send();
+            }
+        }
+    }
+
+    protected function downloadGeneratedZip(string $fileName): BinaryFileResponse
+    {
+        $zipPath = storage_path('app/public/credit-notes-zip/'.$fileName);
+
+        if (! file_exists($zipPath)) {
+            Notification::make()
+                ->title('Archivo no encontrado')
+                ->body('El archivo ZIP ya no existe o aún se está generando.')
+                ->warning()
+                ->send();
+
+            return response()->download($zipPath);
+        }
+
+        return response()->download($zipPath, $fileName);
     }
 }
 
