@@ -127,49 +127,26 @@ class ListInvoices extends ListRecords
                     $payload = $invoice->raw_payload ?? [];
 
                     // Valores reportados por Stripe (centavos)
-                    $rawSubtotal = data_get($payload, 'subtotal');
                     $rawTotal = data_get($payload, 'total');
                     $rawTax = data_get($payload, 'tax');
-                    $rawDiscountAmounts = data_get($payload, 'total_discount_amounts', []);
-                    $rawDiscount = 0;
-                    if (is_array($rawDiscountAmounts)) {
-                        $rawDiscount = collect($rawDiscountAmounts)->sum(fn ($d) => data_get($d, 'amount', 0));
-                    }
+                    $rawTotalTaxes = data_get($payload, 'total_taxes', []);
+                    $rawTotalTaxAmounts = data_get($payload, 'total_tax_amounts', []);
 
                     // Convertir a unidades monetarias
-                    $payloadSubtotal = $rawSubtotal !== null ? $rawSubtotal / 100 : null;
                     $payloadTotal = $rawTotal !== null ? $rawTotal / 100 : null;
                     $payloadTax = $rawTax !== null ? $rawTax / 100 : null;
-                    $payloadDiscount = $rawDiscount / 100;
 
-                    // Valor realmente cobrado
-                    $amountDue = $invoice->amount_due ?? $payloadTotal ?? $invoice->total ?? 0;
-
-                    // Subtotal/total base para calcular el ratio de descuento
-                    $baseSubtotal = $invoice->subtotal ?? $payloadSubtotal ?? 0;
-                    $baseTotal = $invoice->total ?? $payloadTotal ?? 0;
-
-                    // Si tenemos subtotal/total del payload, usar ratio preciso
-                    if ($payloadSubtotal && $payloadTotal) {
-                        $discountRatio = $payloadSubtotal > 0 ? ($payloadTotal / $payloadSubtotal) : 1;
-                    } else {
-                        // Fallback: usar descuentos registrados o amount_due
-                        $totalOriginal = $baseTotal + ($invoice->total_discount_amount ?? $payloadDiscount ?? 0);
-                        $discountRatio = $totalOriginal > 0 ? ($amountDue / $totalOriginal) : 1;
+                    // Stripe suele informar impuestos en total_taxes (nuevo) o total_tax_amounts (legacy)
+                    if (is_array($rawTotalTaxes) && ! empty($rawTotalTaxes)) {
+                        $payloadTax = collect($rawTotalTaxes)->sum(fn ($taxRow) => (float) data_get($taxRow, 'amount', 0)) / 100;
+                    } elseif (is_array($rawTotalTaxAmounts) && ! empty($rawTotalTaxAmounts)) {
+                        $payloadTax = collect($rawTotalTaxAmounts)->sum(fn ($taxRow) => (float) data_get($taxRow, 'amount', 0)) / 100;
                     }
 
-                    // Si la factura/nota de crédito quedó en cero, forzar todo a cero
-                    if (($amountDue ?? 0) == 0) {
-                        $subtotal = 0;
-                        $tax = 0;
-                        $total = 0;
-                        $discountRatio = 0;
-                    } else {
-                        // Aplicar ratio a subtotal y tax
-                        $subtotal = $baseSubtotal * $discountRatio;
-                        $tax = ($invoice->computed_tax_amount ?? $invoice->tax ?? $payloadTax ?? 0) * $discountRatio;
-                        $total = $amountDue;
-                    }
+                    // Importes finales facturados (ya con descuentos aplicados por Stripe)
+                    $total = (float) ($invoice->amount_due ?? $payloadTotal ?? $invoice->total ?? 0);
+                    $tax = (float) ($payloadTax ?? $invoice->computed_tax_amount ?? $invoice->tax ?? 0);
+                    $subtotal = round($total - $tax, 2);
 
                     // Obtener tipo de cambio de la fecha de la factura según la moneda
                     $rateValue = null;
