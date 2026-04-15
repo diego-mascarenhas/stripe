@@ -84,6 +84,14 @@ class SyncStripeInvoices
             }
         }
 
+        // Stripe may send subtotal including taxes for some jurisdictions.
+        // Prefer subtotal_excluding_tax so "Importe" remains net (without VAT).
+        $subtotal = Arr::get($payload, 'subtotal_excluding_tax');
+
+        if (! is_numeric($subtotal)) {
+            $subtotal = Arr::get($payload, 'subtotal');
+        }
+
         return [
             'stripe_id' => Arr::get($payload, 'id'),
             'stripe_subscription_id' => is_string($subscription)
@@ -106,7 +114,7 @@ class SyncStripeInvoices
             'amount_due' => $this->normalizeAmount(Arr::get($payload, 'amount_due')),
             'amount_paid' => $this->normalizeAmount(Arr::get($payload, 'amount_paid')),
             'amount_remaining' => $this->normalizeAmount(Arr::get($payload, 'amount_remaining')),
-            'subtotal' => $this->normalizeAmount(Arr::get($payload, 'subtotal')),
+            'subtotal' => $this->normalizeAmount($subtotal),
             'tax' => $this->normalizeAmount($tax),
             'total' => $this->normalizeAmount(Arr::get($payload, 'total')),
             'total_discount_amount' => $totalDiscountAmount,
