@@ -171,6 +171,21 @@ class ListInvoices extends ListRecords
                         $total = $amountDue;
                     }
 
+                    // Importe (EUR) = base imponible; Tax = IVA. Debe cuadrar con IVA 21% en ES (total con IVA incl.).
+                    if (($amountDue ?? 0) != 0) {
+                        $country = strtoupper($invoice->customer_address_country ?? '');
+                        $totalFloat = (float) $total;
+                        $taxFloat = (float) $tax;
+
+                        if ($country === 'ES' && abs($taxFloat) >= 0.005) {
+                            // España: IVA 21% sobre la base; el total facturado incluye IVA → base = total / 1.21.
+                            $subtotal = round($totalFloat / 1.21, 2);
+                            $tax = round($totalFloat - $subtotal, 2);
+                        } else {
+                            $subtotal = round($totalFloat - $taxFloat, 2);
+                        }
+                    }
+
                     // Obtener tipo de cambio de la fecha de la factura según la moneda
                     $rateValue = null;
                     $exchangeRateDisplay = '';
