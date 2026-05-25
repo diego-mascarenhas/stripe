@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\Subscriptions\ReactivateSuspendedSubscription;
 use App\Models\Invoice;
 use App\Models\Subscription;
+use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Stripe\Exception\SignatureVerificationException;
@@ -162,44 +163,41 @@ class StripeWebhookController extends Controller
         $subscriptionModel = Subscription::where('stripe_id', $stripeSubscriptionId)->first();
 
         if ($subscriptionModel) {
-            // Determinar el estado real basado en pause_collection
-            $actualStatus = $status;
-
-            // Si tiene pause_collection configurado, está pausada
             if ($pauseCollection !== null) {
-                $actualStatus = 'paused';
-
-                Log::info('Stripe webhook: Subscription is PAUSED', [
+                Log::info('Stripe webhook: Subscription has pause_collection in Stripe', [
                     'subscription_id' => $subscriptionModel->id,
                     'pause_behavior' => $pauseCollection['behavior'] ?? null,
+                    'local_status' => $subscriptionModel->status,
                 ]);
-            } else {
-                // Si NO tiene pause_collection, puede estar reactivándose
-                if ($subscriptionModel->status === 'paused' && $status === 'active') {
-                    Log::info('Stripe webhook: Subscription RESUMED from pause', [
-                        'subscription_id' => $subscriptionModel->id,
-                    ]);
+            } elseif ($subscriptionModel->status === 'paused' && $status === 'active') {
+                Log::info('Stripe webhook: Subscription RESUMED from pause in Stripe', [
+                    'subscription_id' => $subscriptionModel->id,
+                ]);
 
-                    // Verificar si debe reactivarse (< 2 facturas impagas)
-                    $unpaidCount = \App\Models\Invoice::where('stripe_subscription_id', $stripeSubscriptionId)
-                        ->where('status', 'open')
-                        ->where('paid', false)
-                        ->count();
+                $unpaidCount = Invoice::where('stripe_subscription_id', $stripeSubscriptionId)
+                    ->where('status', 'open')
+                    ->where('paid', false)
+                    ->count();
 
-                    if ($unpaidCount < 2) {
-                        app(\App\Actions\Subscriptions\ReactivateSuspendedSubscription::class)
-                            ->handle($subscriptionModel);
-                    }
+                if ($unpaidCount < 2) {
+                    app(ReactivateSuspendedSubscription::class)->handle($subscriptionModel);
                 }
             }
 
             $subscriptionModel->update([
-                'status' => $actualStatus,
+                'stripe_status' => $status,
+                'cancel_at_period_end' => (bool) Arr::get($subscription, 'cancel_at_period_end', false),
+                'canceled_at' => filled(Arr::get($subscription, 'canceled_at'))
+                    ? \Illuminate\Support\Carbon::createFromTimestampUTC(Arr::get($subscription, 'canceled_at'))
+                        ->setTimezone(config('app.timezone'))
+                    : null,
+                'raw_payload' => $subscription,
             ]);
 
-            Log::info('Stripe webhook: Subscription status updated in database', [
+            Log::info('Stripe webhook: Subscription synced from Stripe', [
                 'subscription_id' => $subscriptionModel->id,
-                'new_status' => $actualStatus,
+                'stripe_status' => $status,
+                'service_status' => $subscriptionModel->fresh()->status,
             ]);
         }
     }
@@ -220,11 +218,18 @@ class StripeWebhookController extends Controller
 
         if ($subscriptionModel) {
             $subscriptionModel->update([
-                'status' => 'canceled',
+                'stripe_status' => 'canceled',
+                'canceled_at' => filled(Arr::get($subscription, 'canceled_at'))
+                    ? \Illuminate\Support\Carbon::createFromTimestampUTC(Arr::get($subscription, 'canceled_at'))
+                        ->setTimezone(config('app.timezone'))
+                    : now(),
+                'raw_payload' => $subscription,
             ]);
 
-            Log::info('Stripe webhook: Subscription marked as canceled', [
+            Log::info('Stripe webhook: Subscription deleted in Stripe', [
                 'subscription_id' => $subscriptionModel->id,
+                'stripe_status' => 'canceled',
+                'service_status' => $subscriptionModel->status,
             ]);
         }
     }

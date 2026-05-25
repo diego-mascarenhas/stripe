@@ -20,6 +20,7 @@ class Subscription extends Model
         'customer_tax_id_type',
         'customer_tax_id',
         'status',
+        'stripe_status',
         'collection_method',
         'plan_name',
         'plan_interval',

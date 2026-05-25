@@ -56,24 +56,15 @@ class SyncSubscriptionWithWHM
                 return true;
             }
 
-            // Si está cancelada, vencida o impaga, suspender
-            if (in_array($subscription->status, ['canceled', 'past_due', 'unpaid', 'incomplete_expired'])) {
-                $reason = match($subscription->status) {
-                    'canceled' => 'Subscription canceled',
-                    'past_due' => 'Payment overdue',
-                    'unpaid' => 'Payment required',
-                    'incomplete_expired' => 'Payment incomplete',
-                    default => 'Suspended by system',
-                };
-
-                $this->whm->suspendAccount($server, $user, $reason);
+            // Servicio suspendido localmente (día 45, manual, etc.) — independiente del pago en Stripe
+            if ($subscription->status === 'paused') {
+                $this->whm->suspendAccount($server, $user, 'Servicio suspendido');
 
                 Log::info('WHM account suspended', [
                     'subscription_id' => $subscription->id,
                     'stripe_id' => $subscription->stripe_id,
                     'server' => $server,
                     'user' => $user,
-                    'reason' => $reason,
                 ]);
 
                 return true;
