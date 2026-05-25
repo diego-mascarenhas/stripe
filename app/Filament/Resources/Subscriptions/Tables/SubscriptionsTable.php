@@ -69,22 +69,47 @@ class SubscriptionsTable
                         $record->price_currency,
                     ))
                     ->wrap(),
-                Tables\Columns\BadgeColumn::make('status')
-                    ->label('Estado')
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'active' => 'Activa',
-                        'past_due' => 'Vencida',
-                        'canceled' => 'Cancelada',
-                        'trialing' => 'En prueba',
-                        'incomplete' => 'Incompleta',
-                        'unpaid' => 'Impaga',
-                        'incomplete_expired' => 'Expirada',
-                        default => ucfirst($state ?? '—'),
-                    })
+                Tables\Columns\BadgeColumn::make('stripe_status')
+                    ->label('Pago')
+                    ->placeholder('—')
+                    ->formatStateUsing(fn (?string $state, Subscription $record): string => $record->type === 'buy'
+                        ? '—'
+                        : match ($state) {
+                            'active' => 'Activa',
+                            'past_due' => 'Vencida',
+                            'canceled' => 'Cancelada',
+                            'trialing' => 'En prueba',
+                            'incomplete' => 'Incompleta',
+                            'unpaid' => 'Impaga',
+                            'incomplete_expired' => 'Expirada',
+                            default => ucfirst($state ?? '—'),
+                        })
                     ->colors([
                         'success' => static fn ($state): bool => in_array($state, ['active', 'trialing']),
                         'warning' => static fn ($state): bool => in_array($state, ['past_due', 'incomplete']),
                         'danger' => static fn ($state): bool => in_array($state, ['canceled', 'unpaid', 'incomplete_expired']),
+                    ])
+                    ->sortable(),
+                Tables\Columns\BadgeColumn::make('status')
+                    ->label('Servicio')
+                    ->formatStateUsing(fn (?string $state, Subscription $record): string => $record->type === 'buy'
+                        ? match ($state) {
+                            'active' => 'Activa',
+                            'canceled' => 'Cancelada',
+                            default => ucfirst($state ?? '—'),
+                        }
+                        : match ($state) {
+                            'active' => 'Activo',
+                            'paused' => 'Suspendido',
+                            default => ucfirst($state ?? '—'),
+                        })
+                    ->colors([
+                        'success' => static fn ($state, Subscription $record): bool => $record->type === 'buy'
+                            ? $state === 'active'
+                            : $state === 'active',
+                        'danger' => static fn ($state, Subscription $record): bool => $record->type === 'buy'
+                            ? $state === 'canceled'
+                            : $state === 'paused',
                     ])
                     ->sortable(),
                 
@@ -195,10 +220,10 @@ class SubscriptionsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('status')
-                    ->label('Estado')
+                Tables\Filters\SelectFilter::make('stripe_status')
+                    ->label('Pago (Stripe)')
                     ->multiple()
-                    ->default(['past_due', 'active'])
+                    ->default(['past_due', 'active', 'unpaid'])
                     ->options([
                         'active' => 'Activa',
                         'past_due' => 'Vencida',
@@ -207,6 +232,13 @@ class SubscriptionsTable
                         'incomplete' => 'Incompleta',
                         'unpaid' => 'Impaga',
                         'incomplete_expired' => 'Expirada',
+                    ]),
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Servicio')
+                    ->multiple()
+                    ->options([
+                        'active' => 'Activo',
+                        'paused' => 'Suspendido',
                     ]),
                 Tables\Filters\SelectFilter::make('plan_name')
                     ->label('Plan')

@@ -16,14 +16,15 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         
         // INGRESOS (type = 'sell')
         $totalSubscriptions = Subscription::where('type', 'sell')->count();
-        $activeSubscriptions = Subscription::where('type', 'sell')->whereIn('status', $activeStatuses)->count();
-        $pastDueSubscriptions = Subscription::where('type', 'sell')->where('status', 'past_due')->count();
-        $canceledSubscriptions = Subscription::where('type', 'sell')->where('status', 'canceled')->count();
+        $activeSubscriptions = Subscription::where('type', 'sell')->whereIn('stripe_status', $activeStatuses)->count();
+        $pastDueSubscriptions = Subscription::where('type', 'sell')->where('stripe_status', 'past_due')->count();
+        $unpaidSubscriptions = Subscription::where('type', 'sell')->where('stripe_status', 'unpaid')->count();
+        $canceledSubscriptions = Subscription::where('type', 'sell')->where('stripe_status', 'canceled')->count();
 
         // Total converted to EUR (only active/trialing) - INGRESOS
         $totalEurIncome = Subscription::where('type', 'sell')
             ->whereNotNull('amount_eur')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->sum('amount_eur');
 
         // Monthly Recurring Revenue (MRR) - normalized to monthly equivalent in EUR - INGRESOS
@@ -36,7 +37,7 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         // Total converted to EUR (only active/trialing) - GASTOS
         $totalEurExpenses = Subscription::where('type', 'buy')
             ->whereNotNull('amount_eur')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->sum('amount_eur');
 
         // Monthly Recurring Expenses (MRE) - normalized to monthly equivalent in EUR - GASTOS
@@ -49,29 +50,29 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
         // Sum by billing currency (only active/trialing) - para los widgets originales
         $billedInEur = Subscription::where('type', 'sell')
             ->where('price_currency', 'eur')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->sum('amount_total');
         $countEur = Subscription::where('type', 'sell')
             ->where('price_currency', 'eur')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->count();
 
         $billedInArs = Subscription::where('type', 'sell')
             ->where('price_currency', 'ars')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->sum('amount_total');
         $countArs = Subscription::where('type', 'sell')
             ->where('price_currency', 'ars')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->count();
 
         $billedInUsd = Subscription::where('type', 'sell')
             ->where('price_currency', 'usd')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->sum('amount_total');
         $countUsd = Subscription::where('type', 'sell')
             ->where('price_currency', 'usd')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->count();
 
         // Get latest exchange rates
@@ -154,7 +155,7 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
                 ->color('success'),
 
             Stat::make('Vencidas', number_format($pastDueSubscriptions, 0, ',', '.'))
-                ->description('Suscripciones con pagos pendientes')
+                ->description(number_format($unpaidSubscriptions, 0, ',', '.').' impagas en Stripe')
                 ->descriptionIcon('heroicon-m-exclamation-triangle')
                 ->color('danger'),
 
@@ -174,7 +175,7 @@ class SubscriptionStatsWidget extends StatsOverviewWidget
             ->whereNotNull('amount_eur')
             ->whereNotNull('plan_interval')
             ->where('plan_interval', '!=', 'indefinite')
-            ->whereIn('status', $activeStatuses)
+            ->whereIn('stripe_status', $activeStatuses)
             ->chunk(100, function ($subscriptions) use (&$mrr) {
                 foreach ($subscriptions as $subscription) {
                     $amountEur = (float) $subscription->amount_eur;
