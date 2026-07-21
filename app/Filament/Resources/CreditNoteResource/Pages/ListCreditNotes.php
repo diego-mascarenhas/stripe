@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CreditNoteResource\Pages;
 
+use App\Actions\CreditNotes\AssignFiscalCreditNoteNumbers;
 use App\Actions\CreditNotes\SyncStripeCreditNotes;
 use App\Filament\Resources\CreditNoteResource;
 use App\Jobs\GenerateCreditNotesZipJob;
@@ -43,6 +44,30 @@ class ListCreditNotes extends ListRecords
                     } catch (\Throwable $exception) {
                         Notification::make()
                             ->title('Error al sincronizar')
+                            ->body($exception->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+            Action::make('assign-fiscal-numbers')
+                ->label('Asignar Nº Fiscal')
+                ->icon('heroicon-o-hashtag')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('Asignar numeración fiscal')
+                ->modalDescription('Asigna números correlativos R-YYYY-NNNN a las notas de crédito que aún no tienen número fiscal. El orden es cronológico y no modifica Stripe.')
+                ->action(function () {
+                    try {
+                        $result = app(AssignFiscalCreditNoteNumbers::class)->handle();
+
+                        Notification::make()
+                            ->title('Numeración fiscal actualizada')
+                            ->body("Asignados: {$result['assigned']}. Omitidos: {$result['skipped']}.")
+                            ->success()
+                            ->send();
+                    } catch (\Throwable $exception) {
+                        Notification::make()
+                            ->title('Error al asignar numeración fiscal')
                             ->body($exception->getMessage())
                             ->danger()
                             ->send();
@@ -90,7 +115,8 @@ class ListCreditNotes extends ListRecords
 
             // CSV Headers (alineadas con facturas)
             fputcsv($handle, [
-                'Comprobante',
+                'Numero Fiscal',
+                'Comprobante Stripe',
                 'Fecha',
                 'Razón Social',
                 'ID Fiscal',
@@ -106,11 +132,14 @@ class ListCreditNotes extends ListRecords
                 'Razón',
                 'Memo',
                 'Link',
+                'Stripe ID',
+                'Factura Stripe',
             ]);
 
             CreditNote::where('voided', false)
+                ->orderBy('fiscal_series')
+                ->orderBy('fiscal_sequence')
                 ->orderByDesc('credit_note_created_at')
-                ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
                 ->chunk(200, function ($chunk) use ($handle) {
                     foreach ($chunk as $creditNote) {
                         $currency = strtoupper($creditNote->currency ?? 'EUR');
@@ -312,6 +341,7 @@ class ListCreditNotes extends ListRecords
                         $link = $creditNote->pdf ?? $creditNote->hosted_credit_note_url ?? '';
 
                         fputcsv($handle, [
+                            $creditNote->fiscal_number ?? '',
                             $creditNote->number ?? $creditNote->stripe_id,
                             $creditNote->credit_note_created_at?->format('d/m/Y') ?? '',
                             $creditNote->customer_name ?? '',
@@ -328,6 +358,8 @@ class ListCreditNotes extends ListRecords
                             $reasonLabel,
                             $creditNote->memo ?? '',
                             $link,
+                            $creditNote->stripe_id ?? '',
+                            $creditNote->stripe_invoice_id ?? '',
                         ]);
                     }
                 });

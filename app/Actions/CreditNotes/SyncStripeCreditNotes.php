@@ -3,6 +3,7 @@
 namespace App\Actions\CreditNotes;
 
 use App\Models\CreditNote;
+use App\Actions\CreditNotes\AssignFiscalCreditNoteNumbers;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Stripe\StripeClient;
@@ -42,6 +43,8 @@ class SyncStripeCreditNotes
 
                 $processed++;
             }
+
+            app(AssignFiscalCreditNoteNumbers::class)->handle();
         } catch (\Throwable $exception) {
             report($exception);
             throw $exception;

@@ -37,8 +37,15 @@ class CreditNoteResource extends Resource
                 ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC")
             )
             ->columns([
+                Tables\Columns\TextColumn::make('fiscal_number')
+                    ->label('Nº Fiscal')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—')
+                    ->copyable()
+                    ->weight('bold'),
                 Tables\Columns\TextColumn::make('number')
-                    ->label('Comprobante')
+                    ->label('Comprobante Stripe')
                     ->description(fn (CreditNote $record): ?string => $record->credit_note_created_at?->format('d/m/Y'))
                     ->searchable()
                     ->sortable(false)
