@@ -128,19 +128,14 @@ class ListCreditNotes extends ListRecords
                 'Total (EUR)',
                 'País',
                 'Estado',
-                'Tipo',
-                'Razón',
-                'Memo',
                 'Link',
                 'Stripe ID',
                 'Factura Stripe',
             ]);
 
-            CreditNote::where('voided', false)
-                ->orderBy('fiscal_series')
-                ->orderBy('fiscal_sequence')
-                ->orderByDesc('credit_note_created_at')
-                ->chunk(200, function ($chunk) use ($handle) {
+            $query = $this->getFilteredTableQuery();
+
+            $query->chunk(200, function ($chunk) use ($handle) {
                     foreach ($chunk as $creditNote) {
                         $currency = strtoupper($creditNote->currency ?? 'EUR');
                         $date = $creditNote->credit_note_created_at;
@@ -321,22 +316,6 @@ class ListCreditNotes extends ListRecords
                             default => ucfirst($creditNote->status ?? '—'),
                         };
 
-                        // Type translation
-                        $typeLabel = match ($creditNote->type) {
-                            'pre_payment' => 'Pre-pago',
-                            'post_payment' => 'Post-pago',
-                            default => ucfirst($creditNote->type ?? '—'),
-                        };
-
-                        // Reason translation
-                        $reasonLabel = match ($creditNote->reason) {
-                            'duplicate' => 'Duplicado',
-                            'fraudulent' => 'Fraudulento',
-                            'order_change' => 'Cambio de orden',
-                            'product_unsatisfactory' => 'Producto insatisfactorio',
-                            default => ucfirst($creditNote->reason ?? '—'),
-                        };
-
                         // Link
                         $link = $creditNote->pdf ?? $creditNote->hosted_credit_note_url ?? '';
 
@@ -354,9 +333,6 @@ class ListCreditNotes extends ListRecords
                             $totalEurFmt,
                             $country,
                             $statusLabel,
-                            $typeLabel,
-                            $reasonLabel,
-                            $creditNote->memo ?? '',
                             $link,
                             $creditNote->stripe_id ?? '',
                             $creditNote->stripe_invoice_id ?? '',
@@ -368,6 +344,29 @@ class ListCreditNotes extends ListRecords
         }, $fileName, [
             'Content-Type' => 'text/csv; charset=utf-8',
         ]);
+    }
+
+    public function getFilteredTableQuery(): ?\Illuminate\Database\Eloquent\Builder
+    {
+        /** @var \Illuminate\Database\Eloquent\Builder $query */
+        $query = CreditNote::query()
+            ->where('voided', false)
+            ->orderBy('fiscal_series')
+            ->orderBy('fiscal_sequence')
+            ->orderByDesc('credit_note_created_at')
+            ->orderByRaw("CAST(REPLACE(number, '-', '') AS UNSIGNED) DESC");
+
+        $filters = $this->tableFilters;
+
+        if (isset($filters['status']['value']) && filled($filters['status']['value'])) {
+            $query->where('status', $filters['status']['value']);
+        }
+
+        if (isset($filters['currency']['value']) && filled($filters['currency']['value'])) {
+            $query->where('currency', $filters['currency']['value']);
+        }
+
+        return $query;
     }
 
     protected function getPreviousQuarterRange(): array

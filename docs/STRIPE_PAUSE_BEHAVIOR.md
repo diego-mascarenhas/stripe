@@ -74,12 +74,17 @@ protected function handleCustomerSubscriptionUpdated(array $subscription)
 
 ## 📊 **Stripe States vs Our Database:**
 
-| Stripe `status` | Stripe `pause_collection` | Our State |
-|-----------------|---------------------------|-----------|
-| `active` | `null` | `active` ✅ |
-| `active` | `{ behavior: "mark_uncollectible" }` | `paused` ⏸️ |
-| `past_due` | `null` | `past_due` ⚠️ |
-| `canceled` | `null` | `canceled` ❌ |
+| Campo | Uso |
+|-------|-----|
+| `stripe_status` | Espejo de Stripe (`active`, `past_due`, `unpaid`, `canceled`, …). Se actualiza por sync y webhooks. |
+| `status` | Operativo / servicio: `active` (cPanel activo) o `paused` (suspendido día 45). |
+
+| Stripe `status` | Stripe `pause_collection` | `stripe_status` | `status` (servicio) |
+|-----------------|---------------------------|-----------------|---------------------|
+| `active` | `null` | `active` | `active` o `paused` |
+| `active` | `{ behavior: "mark_uncollectible" }` | `active` | Suele ser `paused` tras día 45 |
+| `past_due` / `unpaid` | `null` | `past_due` / `unpaid` | Puede seguir `active` o `paused` |
+| `canceled` | `null` | `canceled` | Independiente del servicio |
 
 ---
 

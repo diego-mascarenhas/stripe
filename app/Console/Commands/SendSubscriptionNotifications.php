@@ -50,8 +50,10 @@ class SendSubscriptionNotifications extends Command
     {
         $this->info('📅 Programando advertencias...');
 
-        // TODAS las suscripciones activas o past_due (sin importar auto_suspend)
-        $subscriptions = Subscription::whereIn('status', ['active', 'past_due'])
+        // Suscripciones con cobro vigente o atrasado en Stripe (el servicio puede seguir activo o pausado)
+        $subscriptions = Subscription::query()
+            ->where('type', 'sell')
+            ->whereIn('stripe_status', ['active', 'past_due', 'unpaid'])
             ->whereNotNull('current_period_end')
             ->get();
 

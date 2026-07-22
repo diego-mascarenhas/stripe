@@ -7,6 +7,7 @@ use App\Models\SubscriptionChange;
 use App\Services\Currency\CurrencyConversionService;
 use App\Services\Stripe\StripeSubscriptionService;
 use App\Support\Invoices\InvoiceNoteBuilder;
+use App\Support\Subscriptions\SubscriptionStatusGuard;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 
@@ -42,7 +43,10 @@ class SyncStripeSubscriptions
                 }
                 $this->updateSubscription($subscription, $mapped);
             } else {
-                $subscription = Subscription::create($mapped + ['last_synced_at' => now()]);
+                $subscription = Subscription::create($mapped + [
+                    'status' => 'active',
+                    'last_synced_at' => now(),
+                ]);
 
                 SubscriptionChange::create([
                     'subscription_id' => $subscription->id,
@@ -83,7 +87,7 @@ class SyncStripeSubscriptions
             $payload['data'] = $stripeData;
         }
 
-        $subscription->fill($payload + ['last_synced_at' => now()]);
+        $subscription->fill(SubscriptionStatusGuard::withoutOperationalStatus($payload) + ['last_synced_at' => now()]);
         $dirty = $subscription->getDirty();
 
         if (empty($dirty)) {
@@ -168,7 +172,7 @@ class SyncStripeSubscriptions
             'customer_country' => $country,
             'customer_tax_id_type' => Arr::get($taxData ?? [], 'type'),
             'customer_tax_id' => Arr::get($taxData ?? [], 'value'),
-            'status' => Arr::get($payload, 'status'),
+            'stripe_status' => SubscriptionStatusGuard::stripeStatusFromPayload($payload),
             'collection_method' => Arr::get($payload, 'collection_method'),
             'plan_name' => Arr::get($price, 'nickname')
                 ?? Arr::get($price, 'product.name')

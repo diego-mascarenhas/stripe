@@ -14,7 +14,7 @@ class DownloadStripeCreditNotePdfs extends Command
      */
     protected $signature = 'creditnotes:download-pdfs
                             {year=2026 : Year to download credit notes from}
-                            {--status=issued : Credit note status filter (issued, void, or all)}
+                            {--include-voided : Include voided credit notes}
                             {--disk=local : Filesystem disk where PDFs are stored}';
 
     /**
@@ -31,8 +31,7 @@ class DownloadStripeCreditNotePdfs extends Command
     {
         $year = (int) $this->argument('year');
         $disk = (string) $this->option('disk');
-        $statusOption = (string) $this->option('status');
-        $status = $statusOption === 'all' ? null : $statusOption;
+        $includeVoided = (bool) $this->option('include-voided');
 
         if ($year < 2000 || $year > 2100) {
             $this->error('Invalid year. Please provide a year between 2000 and 2100.');
@@ -42,10 +41,10 @@ class DownloadStripeCreditNotePdfs extends Command
 
         $this->info("Downloading Stripe credit note PDFs for {$year}...");
         $this->line("Disk: {$disk}");
-        $this->line('Status filter: '.($status ?? 'all'));
+        $this->line('Include voided: '.($includeVoided ? 'yes' : 'no'));
 
         try {
-            $result = $download->handle($year, $disk, $status);
+            $result = $download->handle($year, $disk, $includeVoided);
 
             $this->newLine();
             $this->info('Completed.');

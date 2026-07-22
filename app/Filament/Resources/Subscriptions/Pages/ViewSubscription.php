@@ -208,7 +208,7 @@ class ViewSubscription extends ViewRecord
 
                         // 2. Update key fields from Stripe
                         $updates = [
-                            'status' => \Illuminate\Support\Arr::get($payload, 'status'),
+                            'stripe_status' => \Illuminate\Support\Arr::get($payload, 'status'),
                             'customer_email' => \Illuminate\Support\Arr::get($payload, 'customer.email'),
                             'customer_name' => \Illuminate\Support\Arr::get($payload, 'customer.name'),
                             'plan_name' => \Illuminate\Support\Arr::get($price, 'nickname')
@@ -355,11 +355,12 @@ class ViewSubscription extends ViewRecord
                         Section::make($this->record->customer_name ?? 'Cliente')
                             ->description('Creado ' . ($this->record->created_at?->translatedFormat('d M Y') ?? '—'))
                             ->schema([
-                                TextEntry::make('status')
-                                    ->label('Estado')
+                                TextEntry::make('stripe_status')
+                                    ->label('Pago (Stripe)')
                                     ->badge()
                                     ->columnSpan(1)
-                                    ->color(fn (string $state): string => match ($state) {
+                                    ->visible(fn (): bool => $this->record->type === 'sell')
+                                    ->color(fn (?string $state): string => match ($state) {
                                         'active' => 'success',
                                         'past_due' => 'warning',
                                         'canceled' => 'danger',
@@ -367,7 +368,7 @@ class ViewSubscription extends ViewRecord
                                         'incomplete', 'unpaid' => 'warning',
                                         default => 'gray',
                                     })
-                                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                                    ->formatStateUsing(fn (?string $state): string => match ($state) {
                                         'active' => 'Activa',
                                         'past_due' => 'Vencida',
                                         'canceled' => 'Cancelada',
@@ -375,6 +376,21 @@ class ViewSubscription extends ViewRecord
                                         'incomplete' => 'Incompleta',
                                         'unpaid' => 'Impaga',
                                         'incomplete_expired' => 'Expirada',
+                                        null, '' => '—',
+                                        default => Str::ucfirst((string) $state),
+                                    }),
+                                TextEntry::make('status')
+                                    ->label('Servicio')
+                                    ->badge()
+                                    ->columnSpan(1)
+                                    ->color(fn (string $state): string => match ($state) {
+                                        'active' => 'success',
+                                        'paused' => 'danger',
+                                        default => 'gray',
+                                    })
+                                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                                        'active' => 'Activo',
+                                        'paused' => 'Suspendido',
                                         default => Str::ucfirst($state),
                                     }),
                                 TextEntry::make('customer_email')
